@@ -1,0 +1,7 @@
+output_*
+pdfs
+test*
+*.json
+*.txt
+utils_slow.py
+.env
