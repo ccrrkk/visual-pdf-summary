@@ -52,14 +52,12 @@ If you need to customize the prompts, you can modify the `cn_prompt` and `en_pro
 
 ## 💾 Output Example
 
-Here is a sample report generated for the paper ["Attention Is All You Need"](https://arxiv.org/abs/1706.03762). You can view the full result [here](example/attention_is_all_your_need.pdf). Excerpts are shown below:
+Here is a sample report generated for the paper ["Attention Is All You Need"](https://arxiv.org/abs/1706.03762). You can view the full result [here](example/attention_is_all_your_need/report.pdf). Excerpts are shown below:
 
-<p align="center">
-  <img src="pic/1.jpg" width="45%" />
-  <img src="pic/2.jpg" width="45%" /> 
-</p>
+<center class="half">
+    <img src="pic/1.png" width="200"/><img src="pic/2.png" width="200"/>
+</center>
 
 ## Acknowledgements
 
 The PDF parsing code in this project references https://github.com/CosmosShadow/gptpdf, with improvements made to the image extraction algorithms.
-```

@@ -50,12 +50,11 @@ python reporter.py --pdf_path path/to/your/paper.pdf --output_dir output --langu
 
 ## 💾 输出结果
 
-尝试对论文["Attention Is All You Need"](https://arxiv.org/abs/1706.03762)生成简报，输出结果可以查看[report](example\attention is all your need.pdf),节选如下：
+尝试对论文["Attention Is All You Need"](https://arxiv.org/abs/1706.03762)生成简报，输出结果可以查看[report](example/attention_is_all_your_need/report.pdf),节选如下：
 
-<p align="center">
-  <img src="pic/1.jpg" width="45%" />
-  <img src="pic/2.jpg" width="45%" /> 
-</p>
+<center class="half">
+    <img src="pic/1.png" width="200"/><img src="pic/2.png" width="200"/>
+</center>
 
 ## 致敬
 
