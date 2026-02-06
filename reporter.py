@@ -29,6 +29,132 @@ def _remove_markdown_backticks(content: str) -> str:
             content = content[:last_backticks_pos] + content[last_backticks_pos + 3:]
     return content
 
+# markdown转pdf独立函数
+def markdown_to_pdf(input_md: str, output_pdf: str, font: str = 'Microsoft YaHei'):
+    import markdown
+    import pdfkit
+    import platform
+    import shutil
+    import os
+    import re
+    import urllib.request
+    import urllib.parse
+    import hashlib
+
+    base_dir = os.path.dirname(os.path.abspath(input_md))
+    math_img_dir = os.path.join(base_dir, "math_images")
+    os.makedirs(math_img_dir, exist_ok=True)
+
+    def process_latex(match, is_block=False):
+        tex = match.group(1).strip()
+        if not tex: return ""
+        
+        file_hash = hashlib.md5(tex.encode('utf-8')).hexdigest()
+        local_filename = os.path.join(math_img_dir, f"{file_hash}.png")
+        
+        if not os.path.exists(local_filename):
+            try:
+                query = urllib.parse.quote(f"\\dpi{{300}} {tex}")
+                url = f"https://latex.codecogs.com/png.image?{query}"
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    with open(local_filename, 'wb') as f:
+                        f.write(response.read())
+            except Exception:
+                return f'<span style="color:red">$${tex}$$</span>'
+
+        abs_path = local_filename.replace('\\', '/')
+        
+        if is_block:
+            # 块级公式：字号比正文略大
+            style = (
+                "display: block; "
+                "margin: 3em auto; "
+                "height: 3em; "   
+                "max-width: 95%; "
+            )
+        else:
+            # 行内公式：字号略大于正文
+            style = (
+                "height: 1.2em; "   
+                "vertical-align: -0.2em; "
+                "margin: 0 4px; "
+            )
+
+        return f'<img src="file:///{abs_path}" style="{style}" />'
+
+    # 3. 读取 Markdown
+    with open(input_md, 'r', encoding='utf-8') as f:
+        md_text = f.read()
+
+    print(">>> 正在本地化处理数学公式 (HD Mode)...")
+    
+    # 4. 正则替换
+    md_text = re.sub(r'\$\$([\s\S]*?)\$\$', lambda m: process_latex(m, is_block=True), md_text)
+    md_text = re.sub(r'(?<!\\)\$([^\$\n]+?)(?<!\\)\$', lambda m: process_latex(m, is_block=False), md_text)
+
+    # 5. 转 HTML
+    html_body = markdown.markdown(md_text, extensions=[
+        'extra', 'tables', 'fenced_code', 'attr_list'
+    ])
+    
+    html = f"""
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <style>
+            body {{ 
+                font-family: '{font}', 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', sans-serif; 
+                margin: 2.5cm; 
+                line-height: 1.8; 
+                font-size: 20px; /* --- 将测试用的 100px 改回 24px，现在它会生效了 --- */
+                color: #2c3e50;
+            }}
+            h1 {{ font-size: 38px; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px; }}
+            h2 {{ font-size: 32px; margin-top: 30px; }}
+            
+            /* 表格文字同步调大 */
+            table {{ border-collapse: collapse; width: 100%; margin: 25px 0; }}
+            th, td {{ 
+                border: 1px solid #e2e8f0; 
+                padding: 12px 15px; 
+                text-align: left; 
+                font-size: 20px; /* 表格字号适配 */
+                vertical-align: middle;
+            }}
+            th {{ background-color: #f8fafc; font-weight: bold; }}
+            
+            p {{ margin-bottom: 1.2em; }}
+            li {{ margin-bottom: 0.5em; }}
+        </style>
+    </head>
+    <body>{html_body}</body>
+    </html>
+    """
+    
+    options = {
+        'encoding': "UTF-8",
+        'enable-local-file-access': None,
+        'quiet': '',
+        'disable-javascript': None,
+        'load-error-handling': 'ignore',
+        # 增加打印精度
+        'image-dpi': '300',
+        'image-quality': '94'
+    }
+    
+    config = None
+    if platform.system() == "Windows":
+        wk_path = shutil.which("wkhtmltopdf")
+        if not wk_path:
+            default_path = r'D:\wkhtmltopdf\bin\wkhtmltopdf.exe'
+            if os.path.exists(default_path):
+                wk_path = default_path
+        if wk_path:
+            config = pdfkit.configuration(wkhtmltopdf=wk_path)
+
+    pdfkit.from_string(html, output_pdf, configuration=config, options=options)
+
 def report(
         pdf_path: str,
         img_dir: str = './',
@@ -292,76 +418,9 @@ def report(
     with open(tmp_md_path, 'w', encoding='utf-8') as f:
         f.write(pdf_content)
 
-    # --- 修正：markdown_to_pdf 函数 ---
-    def markdown_to_pdf(input_md: str, output_pdf: str):
-        import markdown
-        import pdfkit
-        import platform
-        import shutil
-
-        # 1. 转换 Markdown 为 HTML
-        with open(input_md, 'r', encoding='utf-8') as f:
-            md_text = f.read()
-        
-        # 必须添加 'attr_list' 才能支持 {width=45%} 这种语法
-        html_body = markdown.markdown(md_text, extensions=['extra', 'tables', 'fenced_code', 'attr_list'])
-        
-        # 2. 构造 HTML
-        html = f"""
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <style>
-                body {{ 
-                    font-family: '{font}', 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'Source Han Sans CN', sans-serif; 
-                    margin: 2cm; 
-                    line-height: 1.6; 
-                }}
-                img {{ max-width: 100%; height: auto; display: block; margin: 20px auto; }}
-                /* 支持附录的并排显示 */
-                p {{ display: block; }}
-                table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
-                th, td {{ border: 1px solid #ddd; padding: 10px; text-align: left; }}
-                th {{ background-color: #f5f5f5; }}
-            </style>
-        </head>
-        <body>{html_body}</body>
-        </html>
-        """
-
-        options = {
-            'encoding': "UTF-8",
-            'enable-local-file-access': None, # 必须开启
-            'quiet': '',
-            'margin-top': '0.75in',
-            'margin-right': '0.75in',
-            'margin-bottom': '0.75in',
-            'margin-left': '0.75in',
-        }
-        
-        # 3. 寻找 wkhtmltopdf 可执行文件
-        config = None
-        if platform.system() == "Windows":
-            # 优先尝试在环境变量 PATH 中找
-            wk_path = shutil.which("wkhtmltopdf")
-            # 如果 PATH 没找到，尝试默认安装路径
-            if not wk_path:
-                default_path = r'D:\wkhtmltopdf\bin\wkhtmltopdf.exe'
-                if os.path.exists(default_path):
-                    wk_path = default_path
-            
-            if wk_path:
-                config = pdfkit.configuration(wkhtmltopdf=wk_path)
-            else:
-                raise OSError("未找到 wkhtmltopdf。请确认已安装并加入 PATH，或安装在 C:\\Program Files\\wkhtmltopdf")
-
-        # 4. 生成 PDF
-        # 注意：使用 input_md 所在的目录作为基础路径，以便识别相对路径的图片
-        pdfkit.from_string(html, output_pdf, configuration=config, options=options)
-
     pdf_output_path = os.path.join(paper_dir, 'report.pdf')
-    # 使用包含绝对路径图片的临时文件来生成 PDF
-    markdown_to_pdf(tmp_md_path, pdf_output_path)
+    # 使用修改后的独立函数
+    markdown_to_pdf(tmp_md_path, pdf_output_path, font=font)
 
     # 删除临时文件
     if os.path.exists(tmp_md_path):
