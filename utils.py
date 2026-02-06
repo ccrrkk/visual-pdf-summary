@@ -302,9 +302,37 @@ def extract_pdf_images(pdf_path, output_dir='./'):
         all_rect_images.extend([os.path.join(output_dir, img) for img in rect_images])
     return all_rect_images, page_times  # 返回每页耗时
 
+def extract_pdf_text(pdf_path: str) -> str:
+    """提取PDF全文文本"""
+    doc = fitz.open(pdf_path)
+    full_text = ""
+    for page in doc:
+        full_text += page.get_text() + "\n"
+    doc.close()
+    return full_text
+
+def split_text_into_chunks(text: str, chunk_size: int = 4000, overlap: int = 500) -> List[str]:
+    """
+    简单的文本分块，带有重叠。
+    注意：这里按字符数切分，如果对Token敏感可以使用 tiktoken。
+    """
+    if not text:
+        return []
+    chunks = []
+    start = 0
+    text_len = len(text)
+    
+    while start < text_len:
+        end = start + chunk_size
+        chunk = text[start:end]
+        chunks.append(chunk)
+        start += (chunk_size - overlap) # 步进，保留重叠
+    
+    return chunks
+
 if __name__ == "__main__":
-    pdf_path = r"pdfs\1904.00962.pdf"
-    img_dir = r"putput"
+    pdf_path = r"D:\visual-pdf-summary\output\leung-et-al-2022-could-gamification-designs-enhance-online-learning-through-personalization-lessons-from-a-field.pdf"
+    img_dir = r"putout"
     extract_pdf_images(pdf_path, output_dir=img_dir)
 
 

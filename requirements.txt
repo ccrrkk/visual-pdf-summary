@@ -1,0 +1,6 @@
+pymupdf
+shapely
+openai
+pypandoc
+python-dotenv
+streamlit

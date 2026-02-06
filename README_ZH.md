@@ -6,7 +6,7 @@ Visual PDF Summary 是一个基于多模态大模型的科研论文智能简报�
 
 ## ✨ 核心特性
 
-- **🖼️ 智能视觉提取**: 也就是不仅仅是截图。内置基于 `Shapely` 和 `PyMuPDF` 的几何算法，自动检测并裁剪论文中的图片、图表和关键区域，去除干扰元素。
+- **🖼️ 智能视觉提取**: 也就是不仅仅是截图。程序可以自动检测并裁剪论文中的图片、图表和关键区域，去除干扰元素。
 - **🧠 多模态深度理解**: 利用大模型的视觉理解能力，读取论文截图，结合提取的插图，生成比纯文本更准确的解读。
 - **📊 图文并茂的报告**: 生成的报告自动按引用位置插入论文原图，不再是干瘪的文字。
 
@@ -37,14 +37,25 @@ model=gpt-4o
 运行以下命令生成论文简报：
 
 ```bash
-python reporter.py --pdf_path path/to/your/paper.pdf --output_dir output --language en
+python reporter.py --pdf_path path/to/your/paper.pdf --output_dir output --language en --max_retries 3
 ```
 
 - `--pdf_path`: 输入 PDF 文件路径（必填）
 - `--output_dir`: 输出目录，默认为 `output`
 - `--language`: 简报语言，支持 `zh`（中文）和 `en`（英文），默认为 `en`
+- `--max_retries`: 最大重试次数，默认为3次
 
-### 4. 修改prompt(可选)
+### 4. 运行前端界面
+
+运行以下命令启动前端界面：
+
+```bash
+streamlit run app.py
+```
+
+随后在浏览器中打开 `http://localhost:8501` 即可使用。你可以在前端页面上轻松的调整相关配置.
+
+### 5. 修改prompt(可选)
 
 如果需要自定义提示词，可以在 `prompt.py` 中修改 `cn_prompt` 和 `en_prompt` 变量。
 

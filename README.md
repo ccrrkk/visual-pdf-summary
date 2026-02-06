@@ -8,7 +8,7 @@ Unlike traditional text-only summarization tools, this project deeply understand
 
 ## ✨ Key Features
 
-- **🖼️ Intelligent Visual Extraction**: It goes beyond simple screenshots. With built-in geometric algorithms based on `Shapely` and `PyMuPDF`, it automatically detects and crops figures, charts, and key areas while eliminating distracting elements.
+- **🖼️ Intelligent Visual Extraction**: It goes beyond simple screenshots. It can automatically detect and crop figures, charts, and key areas while eliminating distracting elements.
 - **🧠 Deep Multimodal Understanding**: Leveraging the visual understanding capabilities of LLMs, it reads paper screenshots and combines them with extracted illustrations to generate interpretations that are more accurate than pure text analysis.
 - **📊 Illustrated Reports**: The generated reports automatically insert original figures at their citation positions, replacing dry text with rich visual context.
 
@@ -39,14 +39,25 @@ model=gpt-4o
 Run the following command to generate a paper summary:
 
 ```bash
-python reporter.py --pdf_path path/to/your/paper.pdf --output_dir output --language en
+python reporter.py --pdf_path path/to/your/paper.pdf --output_dir output --language en --max_retries 3
 ```
 
 - `--pdf_path`: Path to the input PDF file (Required)
 - `--output_dir`: Output directory (Default: `output`)
 - `--language`: Language of the report, supports `zh` (Chinese) and `en` (English). (Default: `en`)
+- `--max_retries`: Maximum number of retries (Default: 3)
 
-### 4. Modify Prompts (Optional)
+### 4. Run the Frontend Interface
+
+Run the following command to start the frontend interface:
+
+```bash
+streamlit run app.py
+```
+
+Then open `http://localhost:8501` in your browser to use the application. You can easily adjust configurations on the frontend page.
+
+### 5. Modify Prompts (Optional)
 
 If you need to customize the prompts, you can modify the `cn_prompt` and `en_prompt` variables in `prompt.py`.
 
