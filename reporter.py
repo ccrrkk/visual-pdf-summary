@@ -312,8 +312,12 @@ def report(
         <head>
             <meta charset="utf-8">
             <style>
-                body {{ font-family: '{font}', 'SimSun', 'Microsoft YaHei', sans-serif; margin: 2cm; line-height: 1.6; }}
-                img {{ max-width: 100%; height: auto; display: block; margin: 15px auto; }}
+                body {{ 
+                    font-family: '{font}', 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'Source Han Sans CN', sans-serif; 
+                    margin: 2cm; 
+                    line-height: 1.6; 
+                }}
+                img {{ max-width: 100%; height: auto; display: block; margin: 20px auto; }}
                 /* 支持附录的并排显示 */
                 p {{ display: block; }}
                 table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
