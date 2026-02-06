@@ -65,20 +65,27 @@ def markdown_to_pdf(input_md: str, output_pdf: str, font: str = 'Microsoft YaHei
 
         abs_path = local_filename.replace('\\', '/')
         
+        # 核心修复逻辑：
+        # 1. 块级公式：zoom: 0.6 将300DPI图片缩小约一半显示，max-width: 100% 覆盖全局的60%限制
+        # 2. 行内公式：zoom: 0.6 保持同比例，vertical-align 对齐
         if is_block:
-            # 块级公式：字号比正文略大
             style = (
                 "display: block; "
-                "margin: 3em auto; "
-                "height: 3em; "   
-                "max-width: 95%; "
+                "margin: 1em auto; "
+                "max-width: 100%; "   
+                "height: auto; "      
+                "width: auto; "       
+                "zoom: 0.6; "         
             )
         else:
-            # 行内公式：字号略大于正文
             style = (
-                "height: 1.2em; "   
-                "vertical-align: -0.2em; "
-                "margin: 0 4px; "
+                "display: inline; "   # 【关键修复】强制设为行内元素，覆盖全局的 display: block
+                "margin: 0 2px; "     # 覆盖全局的 margin，只留左右微小间距
+                "max-width: 100%; "
+                "height: auto; "
+                "width: auto; "
+                "vertical-align: -0.3em; " 
+                "zoom: 0.6; "         # 行内公式保持同样的缩放比例
             )
 
         return f'<img src="file:///{abs_path}" style="{style}" />'
@@ -107,25 +114,29 @@ def markdown_to_pdf(input_md: str, output_pdf: str, font: str = 'Microsoft YaHei
                 font-family: '{font}', 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', sans-serif; 
                 margin: 2.5cm; 
                 line-height: 1.8; 
-                font-size: 20px; /* --- 将测试用的 100px 改回 24px，现在它会生效了 --- */
+                font-size: 20px; /* 字号调大 */
                 color: #2c3e50;
             }}
-            h1 {{ font-size: 38px; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px; }}
+            h1 {{ font-size: 46px; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px; }}
             h2 {{ font-size: 32px; margin-top: 30px; }}
-            
-            /* 表格文字同步调大 */
             table {{ border-collapse: collapse; width: 100%; margin: 25px 0; }}
             th, td {{ 
                 border: 1px solid #e2e8f0; 
                 padding: 12px 15px; 
                 text-align: left; 
-                font-size: 20px; /* 表格字号适配 */
+                font-size: 20px; /* 表格字号同步调大 */
                 vertical-align: middle;
             }}
             th {{ background-color: #f8fafc; font-weight: bold; }}
-            
             p {{ margin-bottom: 1.2em; }}
             li {{ margin-bottom: 0.5em; }}
+            /* 新增：缩小并居中正文图片 */
+            img {{ 
+                max-width: 60%; /* 限制最大宽度为页面的 80%，可按需调为 70% 或 75% */
+                height: auto; 
+                display: block; 
+                margin: 1.5em auto; 
+            }}
         </style>
     </head>
     <body>{html_body}</body>
