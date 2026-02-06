@@ -17,6 +17,7 @@ from utils import extract_pdf_images
 from prompt import cn_prompt, en_prompt, cn_reviewer_promt, en_reviewer_promt
 import argparse
 import shutil
+import pathlib  # 👈 新增引入
 
 def _remove_markdown_backticks(content: str) -> str:
     """
@@ -56,14 +57,31 @@ def markdown_to_pdf(input_md: str, output_pdf: str, font: str = 'Microsoft YaHei
             try:
                 query = urllib.parse.quote(f"\\dpi{{300}} {tex}")
                 url = f"https://latex.codecogs.com/png.image?{query}"
-                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=10) as response:
-                    with open(local_filename, 'wb') as f:
-                        f.write(response.read())
-            except Exception:
-                return f'<span style="color:red">$${tex}$$</span>'
+                # 👈 修改：增强 Headers 模拟浏览器，防止云端 IP 被拦截
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                    'Referer': 'https://latex.codecogs.com/'
+                }
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req, timeout=15) as response:
+                    data = response.read()
+                    if len(data) > 0:
+                        with open(local_filename, 'wb') as f:
+                            f.write(data)
+                    else:
+                        print(f"Warning: Empty response for latex: {tex}")
+            except Exception as e:
+                print(f"Latex download failed: {e}")
+                return f'<span style="color:red; font-size: 0.8em;">(Formula Error: {tex})</span>'
 
-        abs_path = local_filename.replace('\\', '/')
+        # 👈 修改：使用 pathlib 生成标准 URI，解决 Linux 下 file://// 问题
+        if os.path.exists(local_filename):
+            abs_path = os.path.abspath(local_filename)
+            # 例如 Linux: file:///app/output/... Windows: file:///D:/output/...
+            img_src = pathlib.Path(abs_path).as_uri()
+        else:
+            # 图片下载失败 fallback
+            return f'<span style="color:red">$${tex}$$</span>'
         
         # 核心修复逻辑：
         # 1. 块级公式：zoom: 0.6 将300DPI图片缩小约一半显示，max-width: 100% 覆盖全局的60%限制
@@ -88,7 +106,7 @@ def markdown_to_pdf(input_md: str, output_pdf: str, font: str = 'Microsoft YaHei
                 "zoom: 0.6; "         # 行内公式保持同样的缩放比例
             )
 
-        return f'<img src="file:///{abs_path}" style="{style}" />'
+        return f'<img src="{img_src}" style="{style}" />'
 
     # 3. 读取 Markdown
     with open(input_md, 'r', encoding='utf-8') as f:
