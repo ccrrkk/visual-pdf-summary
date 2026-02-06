@@ -24,6 +24,9 @@ st.sidebar.markdown("### 生成配置")
 # 1. 最大重试次数
 max_retries = st.sidebar.slider("最大自检重试次数", min_value=1, max_value=5, value=3, help="如果模型生成质量不过关，自动重试的次数")
 
+# 👈 新增：图片压缩选项
+compress_images = st.sidebar.checkbox("开启图片压缩", value=True, help="减小图片体积，防止 API 报错 413 或连接中断")
+
 # 2. 字体选择与预览
 st.sidebar.markdown("#### PDF字体选择")
 # 字体映射：显示名称 -> (系统字体名, CSS通用名用于预览)
@@ -82,7 +85,8 @@ if uploaded_file is not None:
                     model=model,
                     language=language,
                     max_retries=max_retries,
-                    font=selected_font_sys
+                    font=selected_font_sys,
+                    compress_images=compress_images  
                 )
                 
                 st.success("摘要生成完成！")

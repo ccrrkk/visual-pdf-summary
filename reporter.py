@@ -18,6 +18,8 @@ from prompt import cn_prompt, en_prompt, cn_reviewer_promt, en_reviewer_promt
 import argparse
 import shutil
 import pathlib  # 👈 新增引入
+from PIL import Image  # 👈 新增引入
+import io  # 👈 新增引入
 
 def _remove_markdown_backticks(content: str) -> str:
     """
@@ -193,7 +195,8 @@ def report(
         model: str = 'gpt-4o',
         language: str = 'en',
         max_retries: int = 3,
-        font: str = 'Microsoft YaHei'
+        font: str = 'Microsoft YaHei',
+        compress_images: bool = True  
     ) -> Dict[str, str]:
     """
     生成论文简报
@@ -263,12 +266,33 @@ def report(
 
     images.sort(key=sort_key)
 
-    def image_to_base64_data_url(image_path: str) -> str:
-        with open(image_path, "rb") as f:
-            data = f.read()
-            return "data:image/png;base64," + base64.b64encode(data).decode("utf-8")
+    def image_to_base64_data_url(image_path: str, compress: bool) -> str:
+        """根据配置决定是否压缩并转换为 Base64"""
+        if not compress:
+            with open(image_path, "rb") as f:
+                data = f.read()
+                return "data:image/png;base64," + base64.b64encode(data).decode("utf-8")
+        
+        try:
+            with Image.open(image_path) as img:
+                if img.mode in ("RGBA", "P"):
+                    img = img.convert("RGB")
+                
+                # 限制最大边长并压缩体积
+                max_side = 1024
+                if max(img.size) > max_side:
+                    scale = max_side / max(img.size)
+                    new_size = (int(img.width * scale), int(img.height * scale))
+                    img = img.resize(new_size, Image.Resampling.LANCZOS)
+                
+                buffered = io.BytesIO()
+                img.save(buffered, format="JPEG", quality=80) 
+                img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                return f"data:image/jpeg;base64,{img_str}"
+        except Exception as e:
+            return "data:image/png;base64," + base64.b64encode(open(image_path, "rb").read()).decode("utf-8")
     
-    base64_urls = [image_to_base64_data_url(img) for img in images]
+    base64_urls = [image_to_base64_data_url(img, compress_images) for img in images]
 
     llm_start_time = time.time()
 
@@ -476,6 +500,9 @@ if __name__ == "__main__":
     parser.add_argument('--base_url', type=str, default=None, help='OpenAI Base URL')
     parser.add_argument('--model', type=str, default=None, help='model name')
     parser.add_argument('--max_retries', type=int, default=3, help='Max retries for quality check loop')
+    parser.add_argument('--compress', action='store_true', default=True, help='是否开启图片压缩以减小请求体积')
+    parser.add_argument('--no-compress', action='store_false', dest='compress', help='关闭图片压缩')
+    
     parser.add_argument('--font', type=str, default='Microsoft YaHei', 
                         choices=['Microsoft YaHei', 'SimSun', 'KaiTi', 'SimHei'], 
                         help='Font for PDF generation: Microsoft YaHei(微软雅黑), SimSun(宋体), KaiTi(楷体), SimHei(黑体)')
@@ -496,7 +523,8 @@ if __name__ == "__main__":
         model=model,
         language=args.language,
         max_retries=args.max_retries,
-        font=args.font
+        font=args.font,
+        compress_images=args.compress  # 👈 必须在这里传给函数
     )
 
 
