@@ -4,3 +4,5 @@ openai
 pypandoc
 python-dotenv
 streamlit
+pdfkit
+markdown

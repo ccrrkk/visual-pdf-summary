@@ -16,6 +16,7 @@ import time
 from utils import extract_pdf_images
 from prompt import cn_prompt, en_prompt, cn_reviewer_promt, en_reviewer_promt
 import argparse
+import shutil
 
 def _remove_markdown_backticks(content: str) -> str:
     """
@@ -76,8 +77,9 @@ def report(
     safe_title = re.sub(r'[\\/:*?"<>|]', '_', title)
     # 2. 在output_dir下新建以标题命名的文件夹
     paper_dir = os.path.join(output_dir, safe_title)
-    if not os.path.exists(paper_dir):
-        os.makedirs(paper_dir)
+    if os.path.exists(paper_dir):
+        shutil.rmtree(paper_dir)  # 先清空同名文件夹
+    os.makedirs(paper_dir)
     # 3. img_dir为此文件夹下images
     img_dir = os.path.join(paper_dir, 'images')
     if not os.path.exists(img_dir):
@@ -250,28 +252,36 @@ def report(
     # with open(os.path.join(output_dir, 'raw_report.md'), 'w', encoding='utf-8') as f:
     #     f.write(content)
 
-    # 替换大模型输出的图片路径，如![<说明>](0_0.png) -> ![<说明>](img_dir/0_0.png)
-    # 注意markdown和pdf对路径的要求不一样
-    def replace_image_paths(content: str, img_dir: str) -> str:
-        # 1. 处理 Markdown 图片语法: ![alt](0_0.png)
-        # 正则只匹配到 ) 结束，后面的 {width=...} 会被保留，不受影响
+    # --- 修正：更完善的路径替换逻辑 ---
+    def replace_image_paths(content: str, target_img_dir: str, is_pdf: bool = False) -> str:
+        """
+        统一处理图片路径：
+        - Markdown 模式：使用相对路径 'images/xxx.png'
+        - PDF 模式：使用绝对路径 'file:///D:/path/to/images/xxx.png'
+        """
+        abs_img_dir = os.path.abspath(target_img_dir).replace('\\', '/')
+        
         def repl_md(match):
-            alt, path = match.group(1), match.group(2)
-            # 统一将路径分隔符转为 /，避免 LaTeX 在 Windows 路径(\)下报错
-            normalized_img_dir = img_dir.replace('\\', '/')
-            if path.startswith(normalized_img_dir):
-                full_path = path
+            alt = match.group(1)
+            img_name = match.group(2)
+            # 提取纯文件名，防止大模型给出的路径包含多余层级
+            filename = os.path.basename(img_name)
+            
+            if is_pdf:
+                # 对于 Windows，file:/// + 绝对路径是最稳妥的
+                full_path = f"file:///{abs_img_dir}/{filename}"
             else:
-                full_path = f"{normalized_img_dir}/{path}"
-            # 在每个图片前加换行，防止图片和正文挤在一行
-            return f"\n![{alt}]({full_path})"
+                full_path = f"images/{filename}"
+                
+            return f"![{alt}]({full_path})"
 
-        # 执行替换
-        content = re.sub(r'!\[([^\]]*)\]\(([\w\-_\.]+\.png)\)', repl_md, content)
-        return content
+        # 正则匹配 ![alt](path)
+        return re.sub(r'!\[([^\]]*)\]\(([^)]+\.png)\)', repl_md, content)
     
-    md_content = replace_image_paths(content, "images") # markdown的图像路径
-    pdf_content = replace_image_paths(content, img_dir) # 而pdf的图像路径是代码运行目录相对于图片的路径
+    # 分别生成 Markdown 内容和 PDF 内容
+    md_content = replace_image_paths(content, img_dir, is_pdf=False)
+    # PDF 用的图片目录就是上面创建的 img_dir
+    pdf_content = replace_image_paths(content, img_dir, is_pdf=True)
 
     # 保存解析后的markdown文件
     md_output_path = os.path.join(paper_dir, 'report.md')
@@ -282,17 +292,71 @@ def report(
     with open(tmp_md_path, 'w', encoding='utf-8') as f:
         f.write(pdf_content)
 
-    # markdown->pdf
-    def markdown_to_pdf(input: str,output) -> str:
-        # 字体映射表，用于处理用户输入名称到Latex字体名的可能差异，
-        # 目前假设用户直接传入系统字体名 ('Microsoft YaHei', 'SimSun', etc.)
-        output = pypandoc.convert_file(input, 'pdf', outputfile=output,
-                              extra_args=['--pdf-engine=xelatex', 
-                                          '-V', f'CJKmainfont={font}', # 使用传入的字体
-                                          '-V', 'mainfont=Segoe UI',           # 设置英文字体 (Windows 常用流畅字体)
-                                          '-V', 'geometry:margin=2.5cm'])      # 增加适当的页边距使版面更美观
-    
+    # --- 修正：markdown_to_pdf 函数 ---
+    def markdown_to_pdf(input_md: str, output_pdf: str):
+        import markdown
+        import pdfkit
+        import platform
+        import shutil
+
+        # 1. 转换 Markdown 为 HTML
+        with open(input_md, 'r', encoding='utf-8') as f:
+            md_text = f.read()
+        
+        # 必须添加 'attr_list' 才能支持 {width=45%} 这种语法
+        html_body = markdown.markdown(md_text, extensions=['extra', 'tables', 'fenced_code', 'attr_list'])
+        
+        # 2. 构造 HTML
+        html = f"""
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <style>
+                body {{ font-family: '{font}', 'SimSun', 'Microsoft YaHei', sans-serif; margin: 2cm; line-height: 1.6; }}
+                img {{ max-width: 100%; height: auto; display: block; margin: 15px auto; }}
+                /* 支持附录的并排显示 */
+                p {{ display: block; }}
+                table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
+                th, td {{ border: 1px solid #ddd; padding: 10px; text-align: left; }}
+                th {{ background-color: #f5f5f5; }}
+            </style>
+        </head>
+        <body>{html_body}</body>
+        </html>
+        """
+
+        options = {
+            'encoding': "UTF-8",
+            'enable-local-file-access': None, # 必须开启
+            'quiet': '',
+            'margin-top': '0.75in',
+            'margin-right': '0.75in',
+            'margin-bottom': '0.75in',
+            'margin-left': '0.75in',
+        }
+        
+        # 3. 寻找 wkhtmltopdf 可执行文件
+        config = None
+        if platform.system() == "Windows":
+            # 优先尝试在环境变量 PATH 中找
+            wk_path = shutil.which("wkhtmltopdf")
+            # 如果 PATH 没找到，尝试默认安装路径
+            if not wk_path:
+                default_path = r'D:\wkhtmltopdf\bin\wkhtmltopdf.exe'
+                if os.path.exists(default_path):
+                    wk_path = default_path
+            
+            if wk_path:
+                config = pdfkit.configuration(wkhtmltopdf=wk_path)
+            else:
+                raise OSError("未找到 wkhtmltopdf。请确认已安装并加入 PATH，或安装在 C:\\Program Files\\wkhtmltopdf")
+
+        # 4. 生成 PDF
+        # 注意：使用 input_md 所在的目录作为基础路径，以便识别相对路径的图片
+        pdfkit.from_string(html, output_pdf, configuration=config, options=options)
+
     pdf_output_path = os.path.join(paper_dir, 'report.pdf')
+    # 使用包含绝对路径图片的临时文件来生成 PDF
     markdown_to_pdf(tmp_md_path, pdf_output_path)
 
     # 删除临时文件

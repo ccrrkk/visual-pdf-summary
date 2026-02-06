@@ -60,9 +60,13 @@ st.sidebar.info("上传PDF，点击生成摘要")
 uploaded_file = st.file_uploader("上传论文PDF文件", type=["pdf"])
 
 if uploaded_file is not None:
-    # 确保文件名安全，或使用固定名，这里简单处理
-    pdf_path = os.path.join(output_dir, uploaded_file.name)
-    os.makedirs(output_dir, exist_ok=True)
+    # 修正 1：不要直接把上传的 PDF 放在 output_dir 根目录，
+    # 否则 reporter 里的 shutil.rmtree(paper_dir) 可能会影响到它。
+    # 我们可以先存在临时目录。
+    temp_dir = os.path.join(output_dir, "temp_uploads")
+    os.makedirs(temp_dir, exist_ok=True)
+    pdf_path = os.path.join(temp_dir, uploaded_file.name)
+    
     with open(pdf_path, "wb") as f:
         f.write(uploaded_file.read())
 
@@ -77,8 +81,8 @@ if uploaded_file is not None:
                     base_url=base_url if base_url else None,
                     model=model,
                     language=language,
-                    max_retries=max_retries,  # 传入新参数
-                    font=selected_font_sys    # 传入系统字体名
+                    max_retries=max_retries,
+                    font=selected_font_sys
                 )
                 
                 st.success("摘要生成完成！")
@@ -90,16 +94,33 @@ if uploaded_file is not None:
                     with open(result['pdf_path'], "rb") as f:
                         st.download_button("下载PDF简报", f, file_name="report.pdf", mime="application/pdf")
                     
-                    with open(result['md_path'], "r", encoding="utf-8") as f:
+                    with open(result['md_path'], "rb") as f:
                         st.download_button("下载Markdown源码", f, file_name="report.md", mime="text/markdown")
 
                 st.markdown("---")
                 st.markdown("### 📄 摘要预览")
                 
-                # 读取并展示 markdown
+                # 修正 2：处理 Streamlit 预览中的图片路径
+                # Streamlit 不支持直接读取相对路径的本地图片
                 with open(result['md_path'], "r", encoding="utf-8") as f:
                     md_text = f.read()
-                    st.markdown(md_text, unsafe_allow_html=True)
+                    
+                    # 将 markdown 中的 images/ 替换为绝对路径，方便预览（Streamlit 特殊处理）
+                    preview_img_dir = os.path.abspath(result['img_dir']).replace('\\', '/')
+                    # 将 ![alt](images/xx.png) 替换为直接使用图片文件（Streamlit 较难直接在 markdown 里渲染本地绝对路径图片）
+                    # 更好的办法是：在内容渲染前，先把文本按段拆开，遇到图片用 st.image()
+                    
+                    # 简单粗暴法：Streamlit 只有在 images 文件夹在当前运行目录下时才能显示。
+                    # 或者我们可以解析 md，手动渲染文本和图片：
+                    import re
+                    parts = re.split(r'(!\[.*?\]\(.*?\))', md_text)
+                    for part in parts:
+                        img_match = re.search(r'!\[(.*?)\]\((.*?)\)', part)
+                        if img_match:
+                            img_filename = os.path.basename(img_match.group(2))
+                            st.image(os.path.join(result['img_dir'], img_filename), caption=img_match.group(1))
+                        else:
+                            st.markdown(part, unsafe_allow_html=True)
 
                 st.markdown("---")
                 st.markdown("### 🖼️ 提取的图表")
@@ -111,8 +132,13 @@ if uploaded_file is not None:
                     if len(img_files) > 10:
                         st.info(f"还有 {len(img_files)-10} 张图片未显示...")
 
+            except OSError as e:
+                if "wkhtmltopdf" in str(e):
+                    st.error("❌ 未找到 PDF 生成引擎 (wkhtmltopdf)。")
+                    st.info("请确保服务器已安装 wkhtmltopdf。本地运行请下载安装并加入 PATH。")
+                else:
+                    st.error(f"系统错误: {str(e)}")
             except Exception as e:
                 st.error(f"生成过程中发生错误: {str(e)}")
-                # 打印详细堆栈以便调试
                 import traceback
                 st.code(traceback.format_exc())
