@@ -17,9 +17,18 @@ from utils import extract_pdf_images
 from prompt import cn_prompt, en_prompt, cn_reviewer_promt, en_reviewer_promt
 import argparse
 import shutil
-import pathlib  # 👈 新增引入
-from PIL import Image  # 👈 新增引入
-import io  # 👈 新增引入
+import pathlib 
+from PIL import Image  
+import io 
+import markdown
+import pdfkit
+import platform
+import shutil
+import os
+import re
+import urllib.request
+import urllib.parse
+import hashlib
 
 def _remove_markdown_backticks(content: str) -> str:
     """
@@ -34,15 +43,7 @@ def _remove_markdown_backticks(content: str) -> str:
 
 # markdown转pdf独立函数
 def markdown_to_pdf(input_md: str, output_pdf: str, font: str = 'Microsoft YaHei'):
-    import markdown
-    import pdfkit
-    import platform
-    import shutil
-    import os
-    import re
-    import urllib.request
-    import urllib.parse
-    import hashlib
+
 
     base_dir = os.path.dirname(os.path.abspath(input_md))
     math_img_dir = os.path.join(base_dir, "math_images")
