@@ -6,6 +6,14 @@ Visual PDF Summary is an intelligent research paper briefing generation tool pow
 
 Unlike traditional text-only summarization tools, this project deeply understands the layout structure of PDFs. It **automatically extracts figures and tables**, combining them with the capabilities of Vision-Language Models to generate a clear, logical, and illustrated academic report.
 
+## 🚀 Try Online
+
+You can try Visual PDF Summary directly in your browser without any installation:
+
+👉 [https://visual-pdf-summary.streamlit.app/](https://visual-pdf-summary.streamlit.app/)
+
+Simply upload your PDF and generate a visual summary instantly!
+
 ## ✨ Key Features
 
 - **🖼️ Intelligent Visual Extraction**: We use a finetuned yolov26n model as a detector, which can automatically detect and crop figures, charts, and key areas while eliminating distracting elements.
@@ -61,13 +69,6 @@ Then open `http://localhost:8501` in your browser to use the application. You ca
 
 If you need to customize the prompts, you can modify the `cn_prompt` and `en_prompt` variables in `prompt.py`.
 
-## 🚀 Try Online
-
-You can try Visual PDF Summary directly in your browser without any installation:
-
-👉 [https://visual-pdf-summary.streamlit.app/](https://visual-pdf-summary.streamlit.app/)
-
-Simply upload your PDF and generate a visual summary instantly!
 
 ## 💾 Output Example
 
@@ -79,4 +80,4 @@ Here is a sample report generated for the paper ["Attention Is All You Need"](ht
 
 ## Acknowledgements
 
-The PDF parsing code in this project references https://github.com/CosmosShadow/gptpdf, with improvements made to the image extraction algorithms.
+A part of PDF parsing method in this project references https://github.com/CosmosShadow/gptpdf, and on this basis, a method for image extraction was rewritten.
