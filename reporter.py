@@ -225,6 +225,23 @@ def markdown_to_pdf(input_md: str, output_pdf: str, font: str = 'Microsoft YaHei
 
     pdfkit.from_string(html, output_pdf, configuration=config, options=options)
 
+def pdf_pages_to_base64_images(pdf_path: str) -> List[str]:
+    """将PDF每一页转换为base64编码的图片，用于视觉审查"""
+    doc = fitz.open(pdf_path)
+    images = []
+    for page_num in range(len(doc)):
+        try:
+            page = doc[page_num]
+            # Matrix(1.5, 1.5) 用于提升清晰度，方便模型看清文字
+            pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
+            img_data = pix.tobytes("jpeg")
+            base64_str = base64.b64encode(img_data).decode("utf-8")
+            images.append(f"data:image/jpeg;base64,{base64_str}")
+        except Exception as e:
+            print(f"Error converting page {page_num} to image: {e}")
+    doc.close()
+    return images
+
 def report(
         pdf_path: str,
         img_dir: str = './',
@@ -354,136 +371,7 @@ def report(
     
     base64_urls = [image_to_base64_data_url(img, compress_images) for img in images]
 
-    llm_start_time = time.time()
-
-    print("base64编码用时: {}秒".format(llm_start_time - after_extract_time))
-
-    current_try = 0
-    content = ""
-    quality_pass = False
-
-    # 初始化对话历史，第一条消息包含图片和初始提示
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                *[
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": url}
-                    }
-                    for url in base64_urls
-                ],
-                {"type": "text", "text": prompt},
-            ],
-        },
-    ]
-
-    while current_try < max_retries and not quality_pass:
-        print(f"尝试生成报告 (第 {current_try + 1}/{max_retries} 次)...")
-        
-        # 只保留最近一轮的消息（图片+prompt，上一轮assistant，最新user）
-        completion = client.chat.completions.create(
-            model=model,
-            messages=messages,
-        )
-        # print(completion)
-        content = completion.choices[0].message.content
-        
-        # 自检环节
-        print("正在进行质量自检...")
-        if language == 'zh':
-            check_system_prompt = cn_reviewer_promt
-        else:
-            check_system_prompt = en_reviewer_promt
-
-        # 构造审稿人的消息，必须包含原始图片，否则审稿人无法核对图片编号是否正确
-        check_messages = [
-            {"role": "system", "content": check_system_prompt},
-            {
-                "role": "user", 
-                "content": [
-                    *[
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": url}
-                        }
-                        for url in base64_urls
-                    ],
-                    {"type": "text", "text": f"Review this report content:\n\n{content}"}
-                ]
-            } 
-        ]
-
-        check_completion = client.chat.completions.create(
-            model=model,
-            messages=check_messages # 使用包含图片的消息列表
-        )
-        check_result = check_completion.choices[0].message.content.strip()
-
-        box_match = re.search(r'\\box(?:ed)?\{(.*?)\}', check_result, re.IGNORECASE)
-        box_content = box_match.group(1).strip() if box_match else ""
-        if box_content.lower() == "pass":
-            print(">>> 质量检测通过。")
-            quality_pass = True
-        else:
-            print(f">>> 质量检测未通过。")
-            # 提取审稿意见
-            critique = check_result.replace("FAIL", "").strip()
-            print(f"审稿意见: {critique[:2000]}..." if len(critique) > 2000 else f"审稿意见: {critique}")
-            
-            # 只保留图片+prompt、上一轮assistant、最新user
-            messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        *[
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": url}
-                            }
-                            for url in base64_urls
-                        ],
-                        {"type": "text", "text": prompt},
-                    ],
-                },
-                {"role": "assistant", "content": content},
-            ]
-            if language == 'zh':
-                retry_prompt = f"上一版本的报告质量未达标，审稿人意见如下：\n\n{critique}\n\n请你参考原始图片内容和上述审稿意见，重新生成一份更详细、逻辑更严密的报告。"
-            else:
-                retry_prompt = f"The previous report was rejected. Reviewer critique:\n\n{critique}\n\nPlease regenerate the report, strictly following the original images and addressing the reviewer's feedback above."
-            messages.append({"role": "user", "content": retry_prompt})
-
-            current_try += 1
-
-    if not quality_pass:
-        print("达到最大尝试次数，使用最后一次生成的结果。")
-
-    llm_end_time = time.time()
-    print(f"LLM调用时间 (含自检): {llm_end_time - llm_start_time}秒")
-
-    # # 生成附录
-    # content += "\n\n## 附录：所有提取图表\n\n"
-    # appendix_images = [img for img in images if "_" in os.path.basename(img)]
-    
-    # # 直接用 HTML <img> 标签
-    # for i, img_path in enumerate(appendix_images):
-    #     fname = os.path.basename(img_path)
-    #     # 使用 HTML img 标签，inline-block 布局
-    #     content += f'<img src="{fname}" alt="{fname}" style="width:45%; height:auto; display:inline-block; margin:0.5em; vertical-align:top;" /> '
-    #     if (i + 1) % 2 == 0:
-    #         content += "\n"
-    # content += "\n"
-
-    content = _remove_markdown_backticks(content)
-
-    # 去除所有 markdown 分割线 '---'
-    content = content.replace('\n---\n', '\n')
-    content = content.replace('\n---\r\n', '\n')
-    content = content.replace('---\n', '')
-    content = content.replace('---\r\n', '')
-
+    # 将 replace_image_paths 移动到此处，以便 report 函数内随处可用
     def replace_image_paths(content: str, target_img_dir: str, is_pdf: bool = False) -> str:
         """
         统一处理图片路径：
@@ -527,6 +415,184 @@ def report(
         content = re.sub(r'(<img\s[^>]*?)src="([^"]+\.png)"([^>]*>)', repl_html, content)
         
         return content
+
+    llm_start_time = time.time()
+
+    print("base64编码用时: {}秒".format(llm_start_time - after_extract_time))
+
+    current_try = 0
+    content = ""
+    quality_pass = False
+
+    # 初始化对话历史，第一条消息包含图片和初始提示
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                *[
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": url}
+                    }
+                    for url in base64_urls
+                ],
+                {"type": "text", "text": prompt},
+            ],
+        },
+    ]
+
+    while current_try < max_retries and not quality_pass:
+        print(f"尝试生成报告 (第 {current_try + 1}/{max_retries} 次)...")
+        
+        # 只保留最近一轮的消息（图片+prompt，上一轮assistant，最新user）
+        completion = client.chat.completions.create(
+            model=model,
+            messages=messages,
+        )
+        # print(completion)
+        content = completion.choices[0].message.content
+        
+        # --- 质量自检环节：生成临时PDF并截图 ---
+        print("正在生成临时PDF进行视觉质量自检...")
+        
+        # 1. 清理当前生成的文本
+        temp_content_clean = _remove_markdown_backticks(content)
+        # 简单清理分隔符
+        temp_content_clean = temp_content_clean.replace('\n---\n', '\n').replace('\n---\r\n', '\n').replace('---\n', '').replace('---\r\n', '')
+        
+        # 2. 转换为PDF所需的格式（绝对路径图片）
+        pdf_review_content = replace_image_paths(temp_content_clean, img_dir, is_pdf=True)
+        
+        # 3. 生成临时文件
+        temp_review_md = os.path.join(paper_dir, f'review_temp_{current_try}.md')
+        temp_review_pdf = os.path.join(paper_dir, f'review_temp_{current_try}.pdf')
+        
+        pdf_gen_success = False
+        review_pdf_images = []
+
+        try:
+            with open(temp_review_md, 'w', encoding='utf-8') as f:
+                f.write(pdf_review_content)
+            
+            # 使用现有函数生成PDF
+            markdown_to_pdf(temp_review_md, temp_review_pdf, font=font)
+            
+            # 转换PDF为图片
+            if os.path.exists(temp_review_pdf):
+                review_pdf_images = pdf_pages_to_base64_images(temp_review_pdf)
+                if review_pdf_images:
+                    pdf_gen_success = True
+                    print(f"临时PDF生成成功，共 {len(review_pdf_images)} 页。")
+        except Exception as e:
+            print(f"临时PDF生成失败，将回退到纯文本审查: {e}")
+
+        # 构造审稿内容
+        print("正在调用模型进行质量评估...")
+        if language == 'zh':
+            check_system_prompt = cn_reviewer_promt
+        else:
+            check_system_prompt = en_reviewer_promt
+
+        # 组装消息：原始图片 -> (PDF截图 或 警告) -> 指令与Markdown文本
+        check_user_content = []
+        check_user_content.append({"type": "text", "text": "## Original Source Images"})
+        check_user_content.extend([{"type": "image_url", "image_url": {"url": url}} for url in base64_urls])
+        
+        if pdf_gen_success:
+            check_user_content.append({"type": "text", "text": "## Generated Report PDF Pages (For detailed visual inspection)"})
+            check_user_content.extend([{"type": "image_url", "image_url": {"url": url}} for url in review_pdf_images])
+        else:
+            check_user_content.append({"type": "text", "text": "**WARNING: Could not generate PDF preview. Please review based on text only.**"})
+
+        # check_user_content.append({"type": "text", "text": f"{review_instruction}\n\n## Markdown Source\n{content}"})
+
+        # 构造审稿人的消息
+        check_messages = [
+            {"role": "system", "content": check_system_prompt},
+            {
+                "role": "user", 
+                "content": check_user_content
+            } 
+        ]
+
+        check_completion = client.chat.completions.create(
+            model=model,
+            messages=check_messages 
+        )
+        check_result = check_completion.choices[0].message.content.strip()
+
+        # 清理临时文件
+        if os.path.exists(temp_review_md):
+            os.remove(temp_review_md)
+        if os.path.exists(temp_review_pdf):
+            os.remove(temp_review_pdf)
+
+        box_match = re.search(r'\\box(?:ed)?\{(.*?)\}', check_result, re.IGNORECASE)
+        box_content = box_match.group(1).strip() if box_match else ""
+        if box_content.lower() == "pass":
+            print(">>> 质量检测通过。")
+            quality_pass = True
+        else:
+            print(f">>> 质量检测未通过。")
+            # 提取审稿意见
+            critique = check_result.replace("FAIL", "").strip()
+            print(f"审稿意见: {critique[:2000]}..." if len(critique) > 2000 else f"审稿意见: {critique}")
+            
+            # 只有当PDF生成成功时，才将PDF截图加入对话历史，否则只加文字
+            # 注意：将大量的PDF截图放入对话历史可能会导致token过长
+            # 这里我们选择只保留文字版critique进入下一轮生成，
+            # 这里的 check_messages 是一次性的，不放入 main messages loop
+            
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        *[
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": url}
+                            }
+                            for url in base64_urls
+                        ],
+                        {"type": "text", "text": prompt},
+                    ],
+                },
+                {"role": "assistant", "content": content},
+            ]
+            if language == 'zh':
+                retry_prompt = f"上一版本的报告未通过视觉审查，审稿人意见如下（基于PDF渲染效果）：\n\n{critique}\n\n请你参考意见，修复图片引用错误、公式错误或内容问题，重新生成报告。"
+            else:
+                retry_prompt = f"The previous report failed the visual review. Reviewer critique (based on PDF rendering): \n\n{critique}\n\nPlease fix image references, formula errors, or content issues and regenerate the report."
+            messages.append({"role": "user", "content": retry_prompt})
+
+            current_try += 1
+
+    if not quality_pass:
+        print("达到最大尝试次数，使用最后一次生成的结果。")
+
+    llm_end_time = time.time()
+    print(f"LLM调用时间 (含自检): {llm_end_time - llm_start_time}秒")
+
+    # # 生成附录
+    # content += "\n\n## 附录：所有提取图表\n\n"
+    # appendix_images = [img for img in images if "_" in os.path.basename(img)]
+    
+    # # 直接用 HTML <img> 标签
+    # for i, img_path in enumerate(appendix_images):
+    #     fname = os.path.basename(img_path)
+    #     # 使用 HTML img 标签，inline-block 布局
+    #     content += f'<img src="{fname}" alt="{fname}" style="width:45%; height:auto; display:inline-block; margin:0.5em; vertical-align:top;" /> '
+    #     if (i + 1) % 2 == 0:
+    #         content += "\n"
+    # content += "\n"
+
+    content = _remove_markdown_backticks(content)
+
+    # 去除所有 markdown 分割线 '---'
+    content = content.replace('\n---\n', '\n')
+    content = content.replace('\n---\r\n', '\n')
+    content = content.replace('---\n', '')
+    content = content.replace('---\r\n', '')
     
     # 分别生成 Markdown 内容和 PDF 内容
     md_content = replace_image_paths(content, img_dir, is_pdf=False)
