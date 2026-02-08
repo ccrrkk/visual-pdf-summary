@@ -8,7 +8,7 @@ Unlike traditional text-only summarization tools, this project deeply understand
 
 ## ✨ Key Features
 
-- **🖼️ Intelligent Visual Extraction**: It goes beyond simple screenshots. It can automatically detect and crop figures, charts, and key areas while eliminating distracting elements.
+- **🖼️ Intelligent Visual Extraction**: We use a finetuned yolov26n model as a detector, which can automatically detect and crop figures, charts, and key areas while eliminating distracting elements.
 - **🧠 Deep Multimodal Understanding**: Leveraging the visual understanding capabilities of LLMs, it reads paper screenshots and combines them with extracted illustrations to generate interpretations that are more accurate than pure text analysis.
 - **📊 Illustrated Reports**: The generated reports automatically insert original figures at their citation positions, replacing dry text with rich visual context.
 
@@ -60,6 +60,14 @@ Then open `http://localhost:8501` in your browser to use the application. You ca
 ### 5. Modify Prompts (Optional)
 
 If you need to customize the prompts, you can modify the `cn_prompt` and `en_prompt` variables in `prompt.py`.
+
+## 🚀 Try Online
+
+You can try Visual PDF Summary directly in your browser without any installation:
+
+👉 [https://visual-pdf-summary.streamlit.app/](https://visual-pdf-summary.streamlit.app/)
+
+Simply upload your PDF and generate a visual summary instantly!
 
 ## 💾 Output Example
 

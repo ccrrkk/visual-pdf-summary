@@ -15,8 +15,8 @@ language = st.sidebar.selectbox("选择语言", ["zh", "en"], index=0)
 use_rag = False 
 
 st.sidebar.markdown("### 模型配置")
-api_key = st.sidebar.text_input("OpenAI API Key", value=os.getenv("api_key") or "", type="password")
-base_url = st.sidebar.text_input("OpenAI Base URL", value=os.getenv("base_url") or "")
+api_key = st.sidebar.text_input("OpenAI style API Key", value=os.getenv("api_key") or "", type="password")
+base_url = st.sidebar.text_input("OpenAI  style Base URL", value=os.getenv("base_url") or "")
 model = st.sidebar.text_input("主模型 (如gpt-5)", value=os.getenv("model") or "gpt-5")
 
 st.sidebar.markdown("### 生成配置")

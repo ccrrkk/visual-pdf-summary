@@ -1,12 +1,12 @@
 # Visual PDF Summary
 
-Visual PDF Summary 是一个基于多模态大模型的科研论文智能简报生成工具。
+Visual PDF Summary 是一个基于多模态.模型的科研论文智能简报生成工具。
 
 不同于传统的仅基于文本摘要的工具，本项目能够深入理解 PDF 的版面结构，**自动提取论文中的插图和表格**，结合视觉大模型的能力，生成一份图文并茂、逻辑清晰的学术研报。
 
 ## ✨ 核心特性
 
-- **🖼️ 智能视觉提取**: 也就是不仅仅是截图。程序可以自动检测并裁剪论文中的图片、图表和关键区域，去除干扰元素。
+- **🖼️ 智能视觉提取**: 程序基于微调后的 yolov26n 检测模型，自动检测并裁剪论文中的图片、图表和关键区域，去除干扰元素，提升检测准确率。
 - **🧠 多模态深度理解**: 利用大模型的视觉理解能力，读取论文截图，结合提取的插图，生成比纯文本更准确的解读。
 - **📊 图文并茂的报告**: 生成的报告自动按引用位置插入论文原图，不再是干瘪的文字。
 
@@ -67,6 +67,14 @@ streamlit run app.py
     <img src="pic/1.png" width="200"/><img src="pic/2.png" width="200"/>
 </center>
 
-## 致敬
+## 🚀 在线体验
 
-本文件有关pdf解析的代码部分参考自 https://github.com/CosmosShadow/gptpdf ,并在此基础上做了改进了图像提取的算法. 
+无需本地安装，直接在浏览器中体验 Visual PDF Summary：
+
+👉 [https://visual-pdf-summary.streamlit.app/](https://visual-pdf-summary.streamlit.app/)
+
+上传你的 PDF，即可一键生成图文简报！
+
+<!-- ## 致敬
+
+本文件有关pdf解析的代码部分参考自 https://github.com/CosmosShadow/gptpdf ,并在此基础上做了改进了图像提取的算法. -->

@@ -13,7 +13,7 @@ import pypandoc
 from os import getenv
 from dotenv import load_dotenv
 import time
-from utils import extract_pdf_images
+from utils_yolo import extract_pdf_images
 from prompt import cn_prompt, en_prompt, cn_reviewer_promt, en_reviewer_promt
 import argparse
 import shutil
@@ -32,7 +32,7 @@ import hashlib
 
 def _remove_markdown_backticks(content: str) -> str:
     """
-    删除markdown中的```字符串。
+    删除markdown中的```字符串.
     """
     if '```markdown' in content:
         content = content.replace('```markdown\n', '')
@@ -60,7 +60,6 @@ def markdown_to_pdf(input_md: str, output_pdf: str, font: str = 'Microsoft YaHei
             try:
                 query = urllib.parse.quote(f"\\dpi{{300}} {tex}")
                 url = f"https://latex.codecogs.com/png.image?{query}"
-                # 👈 修改：增强 Headers 模拟浏览器，防止云端 IP 被拦截
                 headers = {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                     'Referer': 'https://latex.codecogs.com/'
@@ -77,16 +76,13 @@ def markdown_to_pdf(input_md: str, output_pdf: str, font: str = 'Microsoft YaHei
                 print(f"Latex download failed: {e}")
                 return f'<span style="color:red; font-size: 0.8em;">(Formula Error: {tex})</span>'
 
-        # 👈 修改：使用 pathlib 生成标准 URI，解决 Linux 下 file://// 问题
         if os.path.exists(local_filename):
             abs_path = os.path.abspath(local_filename)
-            # 例如 Linux: file:///app/output/... Windows: file:///D:/output/...
             img_src = pathlib.Path(abs_path).as_uri()
         else:
             # 图片下载失败 fallback
             return f'<span style="color:red">$${tex}$$</span>'
         
-        # 核心修复逻辑：
         # 1. 块级公式：zoom: 0.6 将300DPI图片缩小约一半显示，max-width: 100% 覆盖全局的60%限制
         # 2. 行内公式：zoom: 0.6 保持同比例，vertical-align 对齐
         if is_block:
@@ -96,32 +92,50 @@ def markdown_to_pdf(input_md: str, output_pdf: str, font: str = 'Microsoft YaHei
                 "max-width: 100%; "   
                 "height: auto; "      
                 "width: auto; "       
-                "zoom: 0.6; "         
+                "zoom: 0.4; "         
             )
         else:
             style = (
-                "display: inline; "   # 【关键修复】强制设为行内元素，覆盖全局的 display: block
+                "display: inline; "   # 强制设为行内元素，覆盖全局的 display: block
                 "margin: 0 2px; "     # 覆盖全局的 margin，只留左右微小间距
                 "max-width: 100%; "
                 "height: auto; "
                 "width: auto; "
                 "vertical-align: -0.3em; " 
-                "zoom: 0.6; "         # 行内公式保持同样的缩放比例
+                "zoom: 0.4; "         # 行内公式保持同样的缩放比例
             )
 
         return f'<img src="{img_src}" style="{style}" />'
 
-    # 3. 读取 Markdown
+    # 读取 Markdown
     with open(input_md, 'r', encoding='utf-8') as f:
         md_text = f.read()
 
     print(">>> 正在本地化处理数学公式 (HD Mode)...")
     
-    # 4. 正则替换
+    # 正则替换数学公式
     md_text = re.sub(r'\$\$([\s\S]*?)\$\$', lambda m: process_latex(m, is_block=True), md_text)
     md_text = re.sub(r'(?<!\\)\$([^\$\n]+?)(?<!\\)\$', lambda m: process_latex(m, is_block=False), md_text)
 
-    # 5. 转 HTML
+    # 将 ![说明](图片) 转换为 <figure><figcaption> 结构
+    def convert_image_to_figure(match):
+        alt_text = match.group(1).strip()
+        img_src = match.group(2).strip()
+        
+        # 如果没有说明文字，只返回普通图片标签
+        if not alt_text:
+            return f'<img src="{img_src}" />'
+        
+        # 有说明文字时，生成 figure 结构
+        return f'''<figure>
+    <img src="{img_src}" />
+    <figcaption>{alt_text}</figcaption>
+</figure>'''
+    
+    # 在转换为HTML前先处理图片
+    md_text = re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', convert_image_to_figure, md_text)
+    
+    # 转 HTML
     html_body = markdown.markdown(md_text, extensions=[
         'extra', 'tables', 'fenced_code', 'attr_list'
     ])
@@ -135,7 +149,7 @@ def markdown_to_pdf(input_md: str, output_pdf: str, font: str = 'Microsoft YaHei
                 font-family: '{font}', 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', sans-serif; 
                 margin: 2.5cm; 
                 line-height: 1.8; 
-                font-size: 20px; /* 字号调大 */
+                font-size: 20px; /* 调节此处来将字号调大 */
                 color: #2c3e50;
             }}
             h1 {{ font-size: 46px; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px; }}
@@ -151,12 +165,36 @@ def markdown_to_pdf(input_md: str, output_pdf: str, font: str = 'Microsoft YaHei
             th {{ background-color: #f8fafc; font-weight: bold; }}
             p {{ margin-bottom: 1.2em; }}
             li {{ margin-bottom: 0.5em; }}
-            /* 新增：缩小并居中正文图片 */
+            
+            /* 图片样式 */
             img {{ 
                 max-width: 60%; /* 限制最大宽度为页面的 80%，可按需调为 70% 或 75% */
                 height: auto; 
                 display: block; 
                 margin: 1.5em auto; 
+            }}
+            
+            /* figure 和 figcaption 样式 */
+            figure {{
+                text-align: center;
+                margin: 2em auto;
+                max-width: 80%;
+            }}
+            
+            figure img {{
+                max-width: 100%;
+                height: auto;
+                display: block;
+                margin: 0 auto 0.8em auto;
+            }}
+            
+            figcaption {{
+                font-size: 18px;
+                color: #555;
+                font-style: italic;
+                text-align: center;
+                margin-top: 0.5em;
+                line-height: 1.6;
             }}
         </style>
     </head>
@@ -221,7 +259,8 @@ def report(
         prompt = cn_prompt
     else:
         prompt = en_prompt
-    # 1. 提取论文标题
+    
+    # 提取论文标题
     import fitz
     doc = fitz.open(pdf_path)
     title = doc.metadata.get("title", "").strip()
@@ -234,12 +273,12 @@ def report(
         title = blocks[0][4].strip().replace('\n', ' ') if blocks else "untitled"
     # 清理标题为合法文件夹名
     safe_title = re.sub(r'[\\/:*?"<>|]', '_', title)
-    # 2. 在output_dir下新建以标题命名的文件夹
+    
     paper_dir = os.path.join(output_dir, safe_title)
     if os.path.exists(paper_dir):
         shutil.rmtree(paper_dir)  # 先清空同名文件夹
     os.makedirs(paper_dir)
-    # 3. img_dir为此文件夹下images
+    
     img_dir = os.path.join(paper_dir, 'images')
     if not os.path.exists(img_dir):
         os.makedirs(img_dir)
@@ -253,17 +292,38 @@ def report(
     print("提取图片用时: {}秒".format(after_extract_time - start_time))
 
     for root, _, files in os.walk(img_dir):
-        # 修改正则以支持 x.png 和 x_y.png
-        images = [os.path.join(img_dir, f) for f in files if f.endswith('.png') and re.match(r'\d+(?:_\d+)?\.png', f)]
+        # 支持 .png 格式，兼容 x.png, Table_x_y.png, Fig_x_y.png
+        images = [
+            os.path.join(img_dir, f) 
+            for f in files 
+            if f.lower().endswith('.png') and (
+                re.match(r'^\d+\.png$', f, re.IGNORECASE) or 
+                re.match(r'^(?:Table|Fig|Unknown)_\d+_\d+\.png$', f, re.IGNORECASE) or
+                re.match(r'^\d+_\d+\.png$', f, re.IGNORECASE)
+            )
+        ]
     
-    # 修改排序逻辑，处理 0.png 和 0_0.png 的情况
     def sort_key(x):
-        name = os.path.basename(x).split('.')[0]
+        filename = os.path.basename(x)
+        name, ext = os.path.splitext(filename)
         parts = name.split('_')
-        page = int(parts[0])
-        # 如果是 x.png，index 设为 -1，排在 x_0.png 之前
-        idx = int(parts[1]) if len(parts) > 1 else -1
-        return (page, idx)
+        
+        try:
+            # Case A: 1.png -> (页码: 1, 索引: -1)
+            if len(parts) == 1 and parts[0].isdigit():
+                return (int(parts[0]), -1)
+            
+            # Case B: Table_1_0.png -> (页码: 1, 索引: 0)
+            if len(parts) >= 3 and parts[1].isdigit() and parts[2].isdigit():
+                return (int(parts[1]), int(parts[2]))
+            
+            # Case C: 1_0.png -> (页码: 1, 索引: 0)
+            if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                return (int(parts[0]), int(parts[1]))
+                
+            return (99999, 99999)
+        except Exception:
+            return (99999, 99999)
 
     images.sort(key=sort_key)
 
@@ -279,7 +339,6 @@ def report(
                 if img.mode in ("RGBA", "P"):
                     img = img.convert("RGB")
                 
-                # 限制最大边长并压缩体积
                 max_side = 1024
                 if max(img.size) > max_side:
                     scale = max_side / max(img.size)
@@ -404,22 +463,18 @@ def report(
     llm_end_time = time.time()
     print(f"LLM调用时间 (含自检): {llm_end_time - llm_start_time}秒")
 
-    # --- 新增：生成附录 (Appendix) ---
-    content += "\n\n## 附录：所有提取图表\n\n"
-    # 筛选出 x_y.png 格式的图片 (通常是提取的插图/表格)
-    appendix_images = [img for img in images if "_" in os.path.basename(img)]
+    # # 生成附录
+    # content += "\n\n## 附录：所有提取图表\n\n"
+    # appendix_images = [img for img in images if "_" in os.path.basename(img)]
     
-    # 使用 Pandoc 兼容的 Markdown 语法 ({width=45%}) 来替代 HTML
-    # 注意: f-string 中输出花括号需要双写 {{ }}
-    for i, img_path in enumerate(appendix_images):
-        fname = os.path.basename(img_path)
-        # 用空格连接，尽量让 pandoc 排在一行（如果宽度允许）
-        content += f"![{fname}]({fname}){{ width=45% }} " 
-        # 每两张图强制换行，增加可读性
-        if (i + 1) % 2 == 0:
-            content += "\n"
-    content += "\n"
-    # -------------------------------
+    # # 直接用 HTML <img> 标签
+    # for i, img_path in enumerate(appendix_images):
+    #     fname = os.path.basename(img_path)
+    #     # 使用 HTML img 标签，inline-block 布局
+    #     content += f'<img src="{fname}" alt="{fname}" style="width:45%; height:auto; display:inline-block; margin:0.5em; vertical-align:top;" /> '
+    #     if (i + 1) % 2 == 0:
+    #         content += "\n"
+    # content += "\n"
 
     content = _remove_markdown_backticks(content)
 
@@ -429,10 +484,6 @@ def report(
     content = content.replace('---\n', '')
     content = content.replace('---\r\n', '')
 
-    # with open(os.path.join(output_dir, 'raw_report.md'), 'w', encoding='utf-8') as f:
-    #     f.write(content)
-
-    # --- 修正：更完善的路径替换逻辑 ---
     def replace_image_paths(content: str, target_img_dir: str, is_pdf: bool = False) -> str:
         """
         统一处理图片路径：
@@ -441,6 +492,7 @@ def report(
         """
         abs_img_dir = os.path.abspath(target_img_dir).replace('\\', '/')
         
+        # 处理 Markdown 图片语法 ![alt](path)
         def repl_md(match):
             alt = match.group(1)
             img_name = match.group(2)
@@ -448,15 +500,33 @@ def report(
             filename = os.path.basename(img_name)
             
             if is_pdf:
-                # 对于 Windows，file:/// + 绝对路径是最稳妥的
+                # Windows
                 full_path = f"file:///{abs_img_dir}/{filename}"
             else:
                 full_path = f"images/{filename}"
                 
             return f"![{alt}]({full_path})"
-
-        # 正则匹配 ![alt](path)
-        return re.sub(r'!\[([^\]]*)\]\(([^)]+\.png)\)', repl_md, content)
+        
+        # 处理 HTML <img> 标签 src="xxx.png"
+        def repl_html(match):
+            before = match.group(1)  # src=" 之前的部分
+            img_name = match.group(2)  # 文件名
+            after = match.group(3)   # " 之后的部分
+            filename = os.path.basename(img_name)
+            
+            if is_pdf:
+                full_path = f"file:///{abs_img_dir}/{filename}"
+            else:
+                full_path = f"images/{filename}"
+            
+            return f'{before}src="{full_path}"{after}'
+        
+        # 先处理 Markdown 语法
+        content = re.sub(r'!\[([^\]]*)\]\(([^)]+\.png)\)', repl_md, content)
+        # 再处理 HTML <img> 标签
+        content = re.sub(r'(<img\s[^>]*?)src="([^"]+\.png)"([^>]*>)', repl_html, content)
+        
+        return content
     
     # 分别生成 Markdown 内容和 PDF 内容
     md_content = replace_image_paths(content, img_dir, is_pdf=False)
@@ -525,7 +595,7 @@ if __name__ == "__main__":
         language=args.language,
         max_retries=args.max_retries,
         font=args.font,
-        compress_images=args.compress  # 👈 必须在这里传给函数
+        compress_images=args.compress
     )
 
 
