@@ -81,3 +81,5 @@ Here is a sample report generated for the paper ["Attention Is All You Need"](ht
 ## Acknowledgements
 
 A part of PDF parsing method in this project references https://github.com/CosmosShadow/gptpdf, and on this basis, a method for image extraction was rewritten.
+
+The picture recognition model is based on juliozhao/DocLayout-YOLO-DocStructBench, you can find the original model weight [here](https://huggingface.co/juliozhao/DocLayout-YOLO-DocStructBench/tree/main).

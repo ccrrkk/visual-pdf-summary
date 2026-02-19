@@ -80,3 +80,5 @@ streamlit run app.py
 ## 致敬
 
 本文件部分pdf解析方法的参考自 https://github.com/CosmosShadow/gptpdf ,并在此基础上做了重写了图像提取的方法.
+
+图片识别模型基于 juliozhao/DocLayout-YOLO-DocStructBench ,你可以在[这里](https://huggingface.co/juliozhao/DocLayout-YOLO-DocStructBench/tree/main)找到原始模型权重.
