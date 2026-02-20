@@ -1,15 +1,9 @@
 import os
 import re
 import base64
-from typing import List, Tuple, Optional, Dict
+from typing import List, Optional, Dict
 import fitz
-import shapely.geometry as sg
-from shapely.geometry.base import BaseGeometry
-from shapely.validation import explain_validity
-import concurrent.futures
-import logging
 from openai import OpenAI
-import pypandoc
 from os import getenv
 from dotenv import load_dotenv
 import time
@@ -17,18 +11,11 @@ from utils_yolo import extract_pdf_images
 from prompt import cn_prompt, en_prompt, cn_reviewer_promt, en_reviewer_promt
 import argparse
 import shutil
-import pathlib 
 from PIL import Image  
 import io 
-import markdown
-import pdfkit
-import platform
-import shutil
-import os
 import re
-import urllib.request
-import urllib.parse
-import hashlib
+
+from render import markdown_to_pdf
 
 def _remove_markdown_backticks(content: str) -> str:
     """
@@ -41,189 +28,6 @@ def _remove_markdown_backticks(content: str) -> str:
             content = content[:last_backticks_pos] + content[last_backticks_pos + 3:]
     return content
 
-# markdown转pdf独立函数
-def markdown_to_pdf(input_md: str, output_pdf: str, font: str = 'Microsoft YaHei'):
-
-
-    base_dir = os.path.dirname(os.path.abspath(input_md))
-    math_img_dir = os.path.join(base_dir, "math_images")
-    os.makedirs(math_img_dir, exist_ok=True)
-
-    def process_latex(match, is_block=False):
-        tex = match.group(1).strip()
-        if not tex: return ""
-        
-        file_hash = hashlib.md5(tex.encode('utf-8')).hexdigest()
-        local_filename = os.path.join(math_img_dir, f"{file_hash}.png")
-        
-        if not os.path.exists(local_filename):
-            try:
-                query = urllib.parse.quote(f"\\dpi{{300}} {tex}")
-                url = f"https://latex.codecogs.com/png.image?{query}"
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                    'Referer': 'https://latex.codecogs.com/'
-                }
-                req = urllib.request.Request(url, headers=headers)
-                with urllib.request.urlopen(req, timeout=15) as response:
-                    data = response.read()
-                    if len(data) > 0:
-                        with open(local_filename, 'wb') as f:
-                            f.write(data)
-                    else:
-                        print(f"Warning: Empty response for latex: {tex}")
-            except Exception as e:
-                print(f"Latex download failed: {e}")
-                return f'<span style="color:red; font-size: 0.8em;">(Formula Error: {tex})</span>'
-
-        if os.path.exists(local_filename):
-            abs_path = os.path.abspath(local_filename)
-            img_src = pathlib.Path(abs_path).as_uri()
-        else:
-            # 图片下载失败 fallback
-            return f'<span style="color:red">$${tex}$$</span>'
-        
-        # 1. 块级公式：zoom: 0.6 将300DPI图片缩小约一半显示，max-width: 100% 覆盖全局的60%限制
-        # 2. 行内公式：zoom: 0.6 保持同比例，vertical-align 对齐
-        if is_block:
-            style = (
-                "display: block; "
-                "margin: 1em auto; "
-                "max-width: 100%; "   
-                "height: auto; "      
-                "width: auto; "       
-                "zoom: 0.4; "         
-            )
-        else:
-            style = (
-                "display: inline; "   # 强制设为行内元素，覆盖全局的 display: block
-                "margin: 0 2px; "     # 覆盖全局的 margin，只留左右微小间距
-                "max-width: 100%; "
-                "height: auto; "
-                "width: auto; "
-                "vertical-align: -0.3em; " 
-                "zoom: 0.4; "         # 行内公式保持同样的缩放比例
-            )
-
-        return f'<img src="{img_src}" style="{style}" />'
-
-    # 读取 Markdown
-    with open(input_md, 'r', encoding='utf-8') as f:
-        md_text = f.read()
-
-    print(">>> 正在本地化处理数学公式 (HD Mode)...")
-    
-    # 正则替换数学公式
-    md_text = re.sub(r'\$\$([\s\S]*?)\$\$', lambda m: process_latex(m, is_block=True), md_text)
-    md_text = re.sub(r'(?<!\\)\$([^\$\n]+?)(?<!\\)\$', lambda m: process_latex(m, is_block=False), md_text)
-
-    # 将 ![说明](图片) 转换为 <figure><figcaption> 结构
-    def convert_image_to_figure(match):
-        alt_text = match.group(1).strip()
-        img_src = match.group(2).strip()
-        
-        # 如果没有说明文字，只返回普通图片标签
-        if not alt_text:
-            return f'<img src="{img_src}" />'
-        
-        # 有说明文字时，生成 figure 结构
-        return f'''<figure>
-    <img src="{img_src}" />
-    <figcaption>{alt_text}</figcaption>
-</figure>'''
-    
-    # 在转换为HTML前先处理图片
-    md_text = re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', convert_image_to_figure, md_text)
-    
-    # 转 HTML
-    html_body = markdown.markdown(md_text, extensions=[
-        'extra', 'tables', 'fenced_code', 'attr_list'
-    ])
-    
-    html = f"""
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <style>
-            body {{ 
-                font-family: '{font}', 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', sans-serif; 
-                margin: 2.5cm; 
-                line-height: 1.8; 
-                font-size: 20px; /* 调节此处来将字号调大 */
-                color: #2c3e50;
-            }}
-            h1 {{ font-size: 46px; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px; }}
-            h2 {{ font-size: 32px; margin-top: 30px; }}
-            table {{ border-collapse: collapse; width: 100%; margin: 25px 0; }}
-            th, td {{ 
-                border: 1px solid #e2e8f0; 
-                padding: 12px 15px; 
-                text-align: left; 
-                font-size: 20px; /* 表格字号同步调大 */
-                vertical-align: middle;
-            }}
-            th {{ background-color: #f8fafc; font-weight: bold; }}
-            p {{ margin-bottom: 1.2em; }}
-            li {{ margin-bottom: 0.5em; }}
-            
-            /* 图片样式 */
-            img {{ 
-                max-width: 60%; /* 限制最大宽度为页面的 80%，可按需调为 70% 或 75% */
-                height: auto; 
-                display: block; 
-                margin: 1.5em auto; 
-            }}
-            
-            /* figure 和 figcaption 样式 */
-            figure {{
-                text-align: center;
-                margin: 2em auto;
-                max-width: 80%;
-            }}
-            
-            figure img {{
-                max-width: 100%;
-                height: auto;
-                display: block;
-                margin: 0 auto 0.8em auto;
-            }}
-            
-            figcaption {{
-                font-size: 18px;
-                color: #555;
-                font-style: italic;
-                text-align: center;
-                margin-top: 0.5em;
-                line-height: 1.6;
-            }}
-        </style>
-    </head>
-    <body>{html_body}</body>
-    </html>
-    """
-    
-    options = {
-        'encoding': "UTF-8",
-        'enable-local-file-access': None,
-        'quiet': '',
-        'disable-javascript': None,
-        'load-error-handling': 'ignore',
-        # 增加打印精度
-        'image-dpi': '300',
-        'image-quality': '94'
-    }
-    
-    config = None
-    if platform.system() == "Windows":
-        wk_path = shutil.which("wkhtmltopdf")
-        if not wk_path:
-            default_path = r'D:\wkhtmltopdf\bin\wkhtmltopdf.exe'
-            if os.path.exists(default_path):
-                wk_path = default_path
-        if wk_path:
-            config = pdfkit.configuration(wkhtmltopdf=wk_path)
-
-    pdfkit.from_string(html, output_pdf, configuration=config, options=options)
 
 def pdf_pages_to_base64_images(pdf_path: str) -> List[str]:
     """将PDF每一页转换为base64编码的图片，用于视觉审查"""
@@ -241,6 +45,47 @@ def pdf_pages_to_base64_images(pdf_path: str) -> List[str]:
             print(f"Error converting page {page_num} to image: {e}")
     doc.close()
     return images
+
+def _sanitize_title_for_path(title: str, max_length: int = 80) -> str:
+    """
+    将 PDF 标题清理为合法的文件夹名：
+    1. 统一所有空白字符（含特殊空格）为普通空格
+    2. 去除零宽字符
+    3. 替换非法路径字符为下划线
+    4. 合并连续空格/下划线，去除首尾
+    5. 截断至 max_length
+    """
+    import unicodedata
+
+    # Step 1: 统一各类空白字符（\xa0, \u2009, \t, \r, \n 等）为普通空格
+    title = re.sub(r'[\s\u00a0\u2000-\u200b\u202f\u205f\u3000]+', ' ', title)
+
+    # Step 2: 去除零宽字符（零宽空格、零宽不换行空格等）
+    title = re.sub(r'[\u200b-\u200f\u2028\u2029\ufeff]', '', title)
+
+    # Step 3: Unicode NFKC 规范化（将全角字符等转为半角）
+    title = unicodedata.normalize('NFKC', title)
+
+    # Step 4: 替换 Windows 非法路径字符为下划线
+    title = re.sub(r'[\\/:*?"<>|]', '_', title)
+
+    # Step 5: 合并连续下划线和空格，统一为下划线
+    title = re.sub(r'[\s_]+', '_', title)
+
+    # Step 6: 去除首尾下划线
+    title = title.strip('_')
+
+    # Step 7: 防止标题为空
+    if not title:
+        title = "untitled"
+
+    # Step 8: 截断（Windows MAX_PATH 限制）
+    title = title[:max_length]
+
+    # Step 9: 截断后可能末尾又出现下划线，再清理一次
+    title = title.strip('_') or "untitled"
+
+    return title
 
 def report(
         pdf_path: str,
@@ -288,8 +133,9 @@ def report(
         # 取最靠上的大块文本作为标题
         blocks = sorted(blocks, key=lambda b: b[1])
         title = blocks[0][4].strip().replace('\n', ' ') if blocks else "untitled"
-    # 清理标题为合法文件夹名
-    safe_title = re.sub(r'[\\/:*?"<>|]', '_', title)
+
+    # 使用增强版清理函数
+    safe_title = _sanitize_title_for_path(title)
     
     paper_dir = os.path.join(output_dir, safe_title)
     if os.path.exists(paper_dir):
@@ -309,15 +155,12 @@ def report(
     print("提取图片用时: {}秒".format(after_extract_time - start_time))
 
     for root, _, files in os.walk(img_dir):
-        # 支持 .png 格式，兼容 x.png, Table_x_y.png, Fig_x_y.png
+        # 只保留纯数字命名的整页截图 (如 1.png, 2.png)
+        # 过滤掉切出来的 Table/Fig 小图 (如 Table_1_0.png)
         images = [
             os.path.join(img_dir, f) 
             for f in files 
-            if f.lower().endswith('.png') and (
-                re.match(r'^\d+\.png$', f, re.IGNORECASE) or 
-                re.match(r'^(?:Table|Fig|Unknown)_\d+_\d+\.png$', f, re.IGNORECASE) or
-                re.match(r'^\d+_\d+\.png$', f, re.IGNORECASE)
-            )
+            if f.lower().endswith('.png') and re.match(r'^\d+\.png$', f, re.IGNORECASE)
         ]
     
     def sort_key(x):
@@ -371,7 +214,6 @@ def report(
     
     base64_urls = [image_to_base64_data_url(img, compress_images) for img in images]
 
-    # 将 replace_image_paths 移动到此处，以便 report 函数内随处可用
     def replace_image_paths(content: str, target_img_dir: str, is_pdf: bool = False) -> str:
         """
         统一处理图片路径：
