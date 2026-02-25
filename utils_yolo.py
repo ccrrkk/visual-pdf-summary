@@ -155,7 +155,9 @@ def extract_pdf_images(pdf_path: str, base_output_dir: str):
     Integrates doclayout_yolo prediction and heuristic merging.
     Saves cropped images (Table_x_y.png, Fig_x_y.png) and annotated pages (1.png, 2.png) to base_output_dir.
     """
-    model_path = r"D:\test\visual-pdf-summary\doclayout.pt"
+    # 使用相对路径，确保线上环境能正确找到模型文件
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    model_path = os.path.join(current_dir, "doclayout.pt")
     
     # Clean output dir
     if not os.path.exists(base_output_dir):
@@ -172,7 +174,8 @@ def extract_pdf_images(pdf_path: str, base_output_dir: str):
         model = YOLOv10(model_path)
     except Exception as e:
         print(f"Error loading model: {e}")
-        return
+        # 抛出异常，阻止程序继续静默运行，让 Streamlit 界面显示具体错误
+        raise RuntimeError(f"YOLO模型加载失败，请检查模型文件是否存在于 {model_path}。详细错误: {e}")
 
     print(">>> Converting PDF to images...")
     pdf_page_map = {}
