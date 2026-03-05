@@ -89,35 +89,53 @@ def _get_wkhtmltopdf_path():
         default_path = r'D:\wkhtmltopdf\bin\wkhtmltopdf.exe'
         return default_path if os.path.exists(default_path) else None
 
-    # Linux: download Ubuntu 22.04 (jammy) pre-built binary — OpenSSL 3 compatible with Debian trixie
-    bin_path = "/tmp/wkhtmltox/usr/local/bin/wkhtmltopdf"
-    if os.path.exists(bin_path):
-        lib_dir = _fix_libjpeg()  # re-apply symlink fix in case it was lost after reboot
+    # Use the bookworm build: links against libssl3 + libjpeg.so.62 — matches modern Debian/Ubuntu
+    # (focal build needs libssl1.1 which is absent on Ubuntu 22.04+ / Debian bookworm)
+    _WKHTML_DEB_URL = "https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-2/wkhtmltox_0.12.6.1-2.bookworm_amd64.deb"
+    _WKHTML_DEB_ID  = "bookworm-0.12.6.1-2"   # bump this string to force re-download
+    bin_path    = "/tmp/wkhtmltox/usr/local/bin/wkhtmltopdf"
+    marker_path = "/tmp/wkhtmltox/.deb_id"
+
+    # Check whether the cached binary matches the expected build
+    cached_id = ""
+    if os.path.exists(marker_path):
+        with open(marker_path) as _f:
+            cached_id = _f.read().strip()
+
+    if os.path.exists(bin_path) and cached_id == _WKHTML_DEB_ID:
+        # Cached binary is up-to-date; re-apply libjpeg fix in case /tmp was partially cleared
+        lib_dir = _fix_libjpeg()
         if lib_dir:
             _inject_ld_library_path(lib_dir)
         return bin_path
 
-    print(">>> wkhtmltopdf not in PATH, downloading pre-built binary...")
-    deb_url = "https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6-1/wkhtmltox_0.12.6-1.focal_amd64.deb"
+    # Need to (re-)download: wrong version cached, or first run
+    if os.path.exists(bin_path):
+        print(f">>> Cached wkhtmltopdf build '{cached_id}' is outdated, re-downloading '{_WKHTML_DEB_ID}'...")
+        shutil.rmtree("/tmp/wkhtmltox", ignore_errors=True)
+
+    print(f">>> Downloading wkhtmltopdf ({_WKHTML_DEB_ID})...")
     deb_path = "/tmp/wkhtmltox.deb"
     try:
         os.makedirs("/tmp/wkhtmltox", exist_ok=True)
-        # Use wget/curl to reliably follow GitHub's multi-hop redirects
         dl_result = subprocess.run(
-            ["wget", "-q", "--show-progress", "-O", deb_path, deb_url],
+            ["wget", "-q", "-O", deb_path, _WKHTML_DEB_URL],
             capture_output=True, timeout=120
         )
         if dl_result.returncode != 0:
-            # Fallback to curl
             dl_result = subprocess.run(
-                ["curl", "-L", "-o", deb_path, deb_url],
+                ["curl", "-L", "-o", deb_path, _WKHTML_DEB_URL],
                 capture_output=True, timeout=120
             )
         if dl_result.returncode != 0:
             raise RuntimeError(f"Download failed: {dl_result.stderr.decode()}")
         subprocess.run(["dpkg", "-x", deb_path, "/tmp/wkhtmltox"], check=True, capture_output=True)
         os.chmod(bin_path, 0o755)
-        # Fix missing libjpeg.so.8: modern Debian/Ubuntu provides libjpeg.so.62 instead
+        # Write marker so we don't re-download on next call
+        with open(marker_path, "w") as _f:
+            _f.write(_WKHTML_DEB_ID)
+        # bookworm build uses libjpeg.so.62 natively; _fix_libjpeg() is a no-op on bookworm
+        # but kept as a safety net for other environments
         lib_dir = _fix_libjpeg()
         if lib_dir:
             _inject_ld_library_path(lib_dir)
