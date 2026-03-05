@@ -47,6 +47,7 @@ def _get_wkhtmltopdf_path():
     # Linux: download Ubuntu 22.04 (jammy) pre-built binary — OpenSSL 3 compatible with Debian trixie
     bin_path = "/tmp/wkhtmltox/usr/local/bin/wkhtmltopdf"
     if os.path.exists(bin_path):
+        _fix_libjpeg()  # re-apply symlink fix in case it was lost after reboot
         return bin_path
 
     print(">>> wkhtmltopdf not in PATH, downloading pre-built binary...")
