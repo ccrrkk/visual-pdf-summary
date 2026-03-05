@@ -1,3 +1,4 @@
 fonts-wqy-zenhei
 fonts-noto-cjk
 poppler-utils
+libgl1
