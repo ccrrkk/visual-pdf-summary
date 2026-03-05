@@ -27,7 +27,7 @@ def _get_wkhtmltopdf_path():
         return bin_path
 
     print(">>> wkhtmltopdf not in PATH, downloading pre-built binary...")
-    deb_url = "https://github.com/wkhtmltopdf/wkhtmltopdf/releases/download/0.12.6.1/wkhtmltox_0.12.6.1-3.jammy_amd64.deb"
+    deb_url = "https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6-1/wkhtmltox_0.12.6-1.focal_amd64.deb"
     deb_path = "/tmp/wkhtmltox.deb"
     try:
         req = urllib.request.Request(deb_url, headers={"User-Agent": "Mozilla/5.0"})
