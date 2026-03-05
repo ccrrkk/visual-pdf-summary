@@ -10,3 +10,4 @@ ultralytics
 pdf2image
 doclayout_yolo
 huggingface_hub
+opencv-python-headless
