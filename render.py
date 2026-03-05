@@ -6,9 +6,41 @@ import hashlib
 import markdown
 import pdfkit
 import platform
-import pathlib 
+import pathlib
 import re
 import shutil
+import subprocess
+
+def _get_wkhtmltopdf_path():
+    """Return wkhtmltopdf binary path. On Linux, downloads a pre-built binary if not found in PATH."""
+    wk_path = shutil.which("wkhtmltopdf")
+    if wk_path:
+        return wk_path
+
+    if platform.system() == "Windows":
+        default_path = r'D:\wkhtmltopdf\bin\wkhtmltopdf.exe'
+        return default_path if os.path.exists(default_path) else None
+
+    # Linux: download Ubuntu 22.04 (jammy) pre-built binary — OpenSSL 3 compatible with Debian trixie
+    bin_path = "/tmp/wkhtmltox/usr/local/bin/wkhtmltopdf"
+    if os.path.exists(bin_path):
+        return bin_path
+
+    print(">>> wkhtmltopdf not in PATH, downloading pre-built binary...")
+    deb_url = "https://github.com/wkhtmltopdf/wkhtmltopdf/releases/download/0.12.6.1/wkhtmltox_0.12.6.1-3.jammy_amd64.deb"
+    deb_path = "/tmp/wkhtmltox.deb"
+    try:
+        req = urllib.request.Request(deb_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=60) as resp, open(deb_path, "wb") as f:
+            f.write(resp.read())
+        os.makedirs("/tmp/wkhtmltox", exist_ok=True)
+        subprocess.run(["dpkg", "-x", deb_path, "/tmp/wkhtmltox"], check=True, capture_output=True)
+        os.chmod(bin_path, 0o755)
+        print(f">>> wkhtmltopdf ready: {bin_path}")
+        return bin_path
+    except Exception as e:
+        print(f">>> Failed to download wkhtmltopdf: {e}")
+        return None
 
 def markdown_to_pdf(input_md: str, output_pdf: str, font: str = 'Microsoft YaHei'):
 
@@ -310,16 +342,8 @@ def markdown_to_pdf(input_md: str, output_pdf: str, font: str = 'Microsoft YaHei
         'image-quality': '94'
     }
     
-    config = None
-    if platform.system() == "Windows":
-        wk_path = shutil.which("wkhtmltopdf")
-        if not wk_path:
-            default_path = r'D:\wkhtmltopdf\bin\wkhtmltopdf.exe'
-            if os.path.exists(default_path):
-                wk_path = default_path
-        if wk_path:
-            config = pdfkit.configuration(wkhtmltopdf=wk_path)
-
+    wk_path = _get_wkhtmltopdf_path()
+    config = pdfkit.configuration(wkhtmltopdf=wk_path) if wk_path else None
     pdfkit.from_string(html, output_pdf, configuration=config, options=options)
 
 
