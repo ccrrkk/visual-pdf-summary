@@ -30,10 +30,20 @@ def _get_wkhtmltopdf_path():
     deb_url = "https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6-1/wkhtmltox_0.12.6-1.focal_amd64.deb"
     deb_path = "/tmp/wkhtmltox.deb"
     try:
-        req = urllib.request.Request(deb_url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=60) as resp, open(deb_path, "wb") as f:
-            f.write(resp.read())
         os.makedirs("/tmp/wkhtmltox", exist_ok=True)
+        # Use wget/curl to reliably follow GitHub's multi-hop redirects
+        dl_result = subprocess.run(
+            ["wget", "-q", "--show-progress", "-O", deb_path, deb_url],
+            capture_output=True, timeout=120
+        )
+        if dl_result.returncode != 0:
+            # Fallback to curl
+            dl_result = subprocess.run(
+                ["curl", "-L", "-o", deb_path, deb_url],
+                capture_output=True, timeout=120
+            )
+        if dl_result.returncode != 0:
+            raise RuntimeError(f"Download failed: {dl_result.stderr.decode()}")
         subprocess.run(["dpkg", "-x", deb_path, "/tmp/wkhtmltox"], check=True, capture_output=True)
         os.chmod(bin_path, 0o755)
         print(f">>> wkhtmltopdf ready: {bin_path}")
