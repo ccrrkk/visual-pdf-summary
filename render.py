@@ -11,27 +11,72 @@ import re
 import shutil
 import subprocess
 
+def _inject_ld_library_path(lib_dir: str):
+    """Prepend lib_dir to LD_LIBRARY_PATH so child processes (wkhtmltopdf) can find .so files."""
+    current = os.environ.get("LD_LIBRARY_PATH", "")
+    if lib_dir not in current:
+        os.environ["LD_LIBRARY_PATH"] = lib_dir + (":" + current if current else "")
+        print(f">>> LD_LIBRARY_PATH set to: {os.environ['LD_LIBRARY_PATH']}")
+
+
 def _fix_libjpeg():
-    """Create libjpeg.so.8 symlink if missing (modern systems provide libjpeg.so.62 instead)."""
+    """Ensure libjpeg.so.8 is accessible. Creates symlink in /tmp (no root needed).
+    Returns the directory containing the symlink, or None if not needed."""
     import glob
-    libjpeg8_paths = glob.glob("/usr/lib/x86_64-linux-gnu/libjpeg.so.8")
-    if libjpeg8_paths:
-        return  # already exists
-    candidates = glob.glob("/usr/lib/x86_64-linux-gnu/libjpeg.so.62*") + \
-                 glob.glob("/usr/lib/x86_64-linux-gnu/libjpeg.so.62")
-    if not candidates:
-        # Try to install libjpeg8
-        subprocess.run(["apt-get", "install", "-y", "-q", "libjpeg8"], capture_output=True)
-        return
-    target = candidates[0]
-    symlink = "/usr/lib/x86_64-linux-gnu/libjpeg.so.8"
+
+    # Already available system-wide — nothing to do
+    if glob.glob("/usr/lib/x86_64-linux-gnu/libjpeg.so.8"):
+        return None
+
+    tmp_lib = "/tmp/libjpeg8_lib"
+    symlink = os.path.join(tmp_lib, "libjpeg.so.8")
+
+    if os.path.exists(symlink):
+        return tmp_lib  # already set up from a previous call
+
+    os.makedirs(tmp_lib, exist_ok=True)
+
+    # Try to symlink from the modern libjpeg.so.62 (available on Debian/Ubuntu)
+    candidates = (
+        glob.glob("/usr/lib/x86_64-linux-gnu/libjpeg.so.62*")
+        + glob.glob("/usr/lib/x86_64-linux-gnu/libjpeg.so.62")
+        + glob.glob("/usr/lib/*/libjpeg.so.62*")
+    )
+    if candidates:
+        try:
+            os.symlink(candidates[0], symlink)
+            print(f">>> Created libjpeg symlink in /tmp: {symlink} -> {candidates[0]}")
+            return tmp_lib
+        except FileExistsError:
+            return tmp_lib
+
+    # Last resort: download libjpeg8 .deb and extract the .so
+    print(">>> libjpeg.so.62 not found, attempting to download libjpeg8...")
+    deb_url = "http://archive.ubuntu.com/ubuntu/pool/main/libj/libjpeg8/libjpeg8_8c-2ubuntu8_amd64.deb"
+    deb_path = "/tmp/libjpeg8.deb"
+    extract_dir = "/tmp/libjpeg8_extract"
     try:
-        os.symlink(target, symlink)
-        print(f">>> Created symlink {symlink} -> {target}")
-    except PermissionError:
-        subprocess.run(["ln", "-sf", target, symlink], capture_output=True)
-    except FileExistsError:
-        pass
+        result = subprocess.run(
+            ["wget", "-q", "-O", deb_path, deb_url],
+            capture_output=True, timeout=60
+        )
+        if result.returncode != 0:
+            result = subprocess.run(
+                ["curl", "-sL", "-o", deb_path, deb_url],
+                capture_output=True, timeout=60
+            )
+        if result.returncode == 0:
+            os.makedirs(extract_dir, exist_ok=True)
+            subprocess.run(["dpkg", "-x", deb_path, extract_dir], check=True, capture_output=True)
+            found = glob.glob(f"{extract_dir}/**/libjpeg.so.8*", recursive=True)
+            if found:
+                os.symlink(found[0], symlink)
+                print(f">>> Extracted and linked libjpeg.so.8 from .deb")
+                return tmp_lib
+    except Exception as e:
+        print(f">>> Could not obtain libjpeg.so.8: {e}")
+
+    return None
 
 
 def _get_wkhtmltopdf_path():
@@ -47,7 +92,9 @@ def _get_wkhtmltopdf_path():
     # Linux: download Ubuntu 22.04 (jammy) pre-built binary — OpenSSL 3 compatible with Debian trixie
     bin_path = "/tmp/wkhtmltox/usr/local/bin/wkhtmltopdf"
     if os.path.exists(bin_path):
-        _fix_libjpeg()  # re-apply symlink fix in case it was lost after reboot
+        lib_dir = _fix_libjpeg()  # re-apply symlink fix in case it was lost after reboot
+        if lib_dir:
+            _inject_ld_library_path(lib_dir)
         return bin_path
 
     print(">>> wkhtmltopdf not in PATH, downloading pre-built binary...")
@@ -71,7 +118,9 @@ def _get_wkhtmltopdf_path():
         subprocess.run(["dpkg", "-x", deb_path, "/tmp/wkhtmltox"], check=True, capture_output=True)
         os.chmod(bin_path, 0o755)
         # Fix missing libjpeg.so.8: modern Debian/Ubuntu provides libjpeg.so.62 instead
-        _fix_libjpeg()
+        lib_dir = _fix_libjpeg()
+        if lib_dir:
+            _inject_ld_library_path(lib_dir)
         print(f">>> wkhtmltopdf ready: {bin_path}")
         return bin_path
     except Exception as e:
