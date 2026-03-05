@@ -97,10 +97,29 @@ def report(
         language: str = 'en',
         max_retries: int = 3,
         font: str = 'Microsoft YaHei',
-        compress_images: bool = True  
+        compress_images: bool = True,
+        human_feedback: Optional[str] = None,
+        previous_content: Optional[str] = None,
+        skip_image_extraction: bool = False,
+        feedback_images: Optional[List[str]] = None
     ) -> Dict[str, str]:
     """
     生成论文简报
+    Args:
+        pdf_path: PDF文件路径
+        img_dir: 图片目录（已弃用，保留兼容）
+        output_dir: 输出目录
+        api_key: API密钥
+        base_url: API基础URL
+        model: 模型名称
+        language: 语言 'zh' 或 'en'
+        max_retries: 最大重试次数（AI自检）
+        font: PDF字体
+        compress_images: 是否压缩图片
+        human_feedback: 人工反馈意见，如果提供，将作为额外提示引导生成
+        previous_content: 上一次生成的报告内容（用于基于反馈的重新生成）
+        skip_image_extraction: 是否跳过图片提取，在二次生成时使用已有的图片
+        feedback_images: 用户反馈时上传的图片列表（base64 data URLs），帮助精准定位问题
     Returns:
         Dict[str, str]: 包含生成文件路径的字典
             - 'md_path': Markdown文件路径
@@ -121,6 +140,24 @@ def report(
         prompt = cn_prompt
     else:
         prompt = en_prompt
+
+    # 处理人工反馈
+    skip_ai_check = False
+    feedback_prompt = None
+    if human_feedback:
+        if previous_content:
+            # 情况1：有上一次生成内容和人工反馈，构造包含历史的消息
+            skip_ai_check = True
+            if language == 'zh':
+                feedback_prompt = f"以下是人工审阅意见：\n\n{human_feedback}\n\n请根据以上反馈意见，在之前生成的报告基础上进行修改和完善。"
+            else:
+                feedback_prompt = f"Here is human review feedback:\n\n{human_feedback}\n\nPlease revise and improve the previously generated report based on this feedback."
+        else:
+            # 情况2：只有人工反馈，没有上一次内容，将反馈附加到提示中
+            if language == 'zh':
+                prompt += f"\n\n## 人工反馈意见\n{human_feedback}\n\n请根据以上反馈意见生成报告。"
+            else:
+                prompt += f"\n\n## Human Feedback\n{human_feedback}\n\nPlease generate the report based on this feedback."
     
     # 提取论文标题
     import fitz
@@ -139,9 +176,18 @@ def report(
     
     paper_dir = os.path.join(output_dir, safe_title)
     if os.path.exists(paper_dir):
-        shutil.rmtree(paper_dir)  # 先清空同名文件夹
-    os.makedirs(paper_dir)
-    
+        if skip_image_extraction:
+            # 保留 images 子目录（含已提取的图片），只清理其他文件和子目录
+            for item in os.listdir(paper_dir):
+                item_path = os.path.join(paper_dir, item)
+                if os.path.isfile(item_path):
+                    os.remove(item_path)
+                elif os.path.isdir(item_path) and item != 'images':
+                    shutil.rmtree(item_path)
+        else:
+            shutil.rmtree(paper_dir)  # 先清空同名文件夹
+    os.makedirs(paper_dir, exist_ok=True)
+
     img_dir = os.path.join(paper_dir, 'images')
     if not os.path.exists(img_dir):
         os.makedirs(img_dir)
@@ -149,10 +195,13 @@ def report(
     print(img_dir)
     start_time = time.time()
 
-    extract_pdf_images(pdf_path, img_dir)
-
-    after_extract_time = time.time()
-    print("提取图片用时: {}秒".format(after_extract_time - start_time))
+    if not skip_image_extraction:
+        extract_pdf_images(pdf_path, img_dir)
+        after_extract_time = time.time()
+        print("提取图片用时: {}秒".format(after_extract_time - start_time))
+    else:
+        after_extract_time = start_time
+        print("跳过图片提取，使用已有图片")
 
     for root, _, files in os.walk(img_dir):
         # 只保留纯数字命名的整页截图 (如 1.png, 2.png)
@@ -267,21 +316,60 @@ def report(
     quality_pass = False
 
     # 初始化对话历史，第一条消息包含图片和初始提示
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                *[
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": url}
-                    }
-                    for url in base64_urls
+    if skip_ai_check and previous_content and feedback_prompt:
+        # 构造包含历史的消息：图片+原始prompt -> 上一次生成内容 -> 人工反馈（含反馈图片）
+        # 反馈消息可以包含用户上传的图片，帮助更精准地定位问题
+        feedback_content = []
+        if feedback_images:
+            for url in feedback_images:
+                feedback_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": url}
+                })
+        feedback_content.append({"type": "text", "text": feedback_prompt})
+
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    *[
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": url}
+                        }
+                        for url in base64_urls
+                    ],
+                    {"type": "text", "text": prompt},
                 ],
-                {"type": "text", "text": prompt},
-            ],
-        },
-    ]
+            },
+            {"role": "assistant", "content": previous_content},
+            {"role": "user", "content": feedback_content},
+        ]
+        # 直接生成，跳过AI自检循环
+        print("根据人工反馈重新生成报告...")
+        completion = client.chat.completions.create(
+            model=model,
+            messages=messages,
+        )
+        content = completion.choices[0].message.content
+        quality_pass = True  # 跳过自检
+    else:
+        # 正常流程
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    *[
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": url}
+                        }
+                        for url in base64_urls
+                    ],
+                    {"type": "text", "text": prompt},
+                ],
+            },
+        ]
 
     while current_try < max_retries and not quality_pass:
         print(f"尝试生成报告 (第 {current_try + 1}/{max_retries} 次)...")
@@ -482,9 +570,12 @@ if __name__ == "__main__":
     parser.add_argument('--compress', action='store_true', default=True, help='是否开启图片压缩以减小请求体积')
     parser.add_argument('--no-compress', action='store_false', dest='compress', help='关闭图片压缩')
     
-    parser.add_argument('--font', type=str, default='Microsoft YaHei', 
-                        choices=['Microsoft YaHei', 'SimSun', 'KaiTi', 'SimHei'], 
+    parser.add_argument('--font', type=str, default='Microsoft YaHei',
+                        choices=['Microsoft YaHei', 'SimSun', 'KaiTi', 'SimHei'],
                         help='Font for PDF generation: Microsoft YaHei(微软雅黑), SimSun(宋体), KaiTi(楷体), SimHei(黑体)')
+    parser.add_argument('--human_feedback', type=str, default=None, help='人工反馈意见，用于引导重新生成')
+    parser.add_argument('--previous_content', type=str, default=None, help='上一次生成的报告内容（用于基于反馈的重新生成）')
+    parser.add_argument('--skip_image_extraction', action='store_true', default=False, help='跳过图片提取，使用已有的图片（二次生成时使用）')
     
     args = parser.parse_args()
 
@@ -503,7 +594,10 @@ if __name__ == "__main__":
         language=args.language,
         max_retries=args.max_retries,
         font=args.font,
-        compress_images=args.compress
+        compress_images=args.compress,
+        human_feedback=args.human_feedback,
+        previous_content=args.previous_content,
+        skip_image_extraction=args.skip_image_extraction
     )
 
 
