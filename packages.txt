@@ -3,6 +3,6 @@ fonts-noto-cjk
 poppler-utils
 libgl1
 libglib2.0-0t64
-libsm6t64
+libsm6
 libxext6
 libxrender1
