@@ -56,16 +56,18 @@ def _fix_libjpeg():
     deb_path = "/tmp/libjpeg8.deb"
     extract_dir = "/tmp/libjpeg8_extract"
     try:
-        result = subprocess.run(
+        result = None
+        for cmd in [
             ["wget", "-q", "-O", deb_path, deb_url],
-            capture_output=True, timeout=60
-        )
-        if result.returncode != 0:
-            result = subprocess.run(
-                ["curl", "-sL", "-o", deb_path, deb_url],
-                capture_output=True, timeout=60
-            )
-        if result.returncode == 0:
+            ["curl", "-sL", "-o", deb_path, deb_url],
+        ]:
+            try:
+                result = subprocess.run(cmd, capture_output=True, timeout=60)
+                if result.returncode == 0:
+                    break
+            except FileNotFoundError:
+                continue
+        if result is not None and result.returncode == 0:
             os.makedirs(extract_dir, exist_ok=True)
             subprocess.run(["dpkg", "-x", deb_path, extract_dir], check=True, capture_output=True)
             found = glob.glob(f"{extract_dir}/**/libjpeg.so.8*", recursive=True)
@@ -118,17 +120,19 @@ def _get_wkhtmltopdf_path():
     deb_path = "/tmp/wkhtmltox.deb"
     try:
         os.makedirs("/tmp/wkhtmltox", exist_ok=True)
-        dl_result = subprocess.run(
+        dl_result = None
+        for cmd in [
             ["wget", "-q", "-O", deb_path, _WKHTML_DEB_URL],
-            capture_output=True, timeout=120
-        )
-        if dl_result.returncode != 0:
-            dl_result = subprocess.run(
-                ["curl", "-L", "-o", deb_path, _WKHTML_DEB_URL],
-                capture_output=True, timeout=120
-            )
-        if dl_result.returncode != 0:
-            raise RuntimeError(f"Download failed: {dl_result.stderr.decode()}")
+            ["curl", "-L", "-o", deb_path, _WKHTML_DEB_URL],
+        ]:
+            try:
+                dl_result = subprocess.run(cmd, capture_output=True, timeout=120)
+                if dl_result.returncode == 0:
+                    break
+            except FileNotFoundError:
+                continue  # tool not installed, try next
+        if dl_result is None or dl_result.returncode != 0:
+            raise RuntimeError(f"Download failed (tried wget and curl): {dl_result.stderr.decode() if dl_result else 'no downloader found'}")
         subprocess.run(["dpkg", "-x", deb_path, "/tmp/wkhtmltox"], check=True, capture_output=True)
         os.chmod(bin_path, 0o755)
         # Write marker so we don't re-download on next call
