@@ -11,6 +11,29 @@ import re
 import shutil
 import subprocess
 
+def _fix_libjpeg():
+    """Create libjpeg.so.8 symlink if missing (modern systems provide libjpeg.so.62 instead)."""
+    import glob
+    libjpeg8_paths = glob.glob("/usr/lib/x86_64-linux-gnu/libjpeg.so.8")
+    if libjpeg8_paths:
+        return  # already exists
+    candidates = glob.glob("/usr/lib/x86_64-linux-gnu/libjpeg.so.62*") + \
+                 glob.glob("/usr/lib/x86_64-linux-gnu/libjpeg.so.62")
+    if not candidates:
+        # Try to install libjpeg8
+        subprocess.run(["apt-get", "install", "-y", "-q", "libjpeg8"], capture_output=True)
+        return
+    target = candidates[0]
+    symlink = "/usr/lib/x86_64-linux-gnu/libjpeg.so.8"
+    try:
+        os.symlink(target, symlink)
+        print(f">>> Created symlink {symlink} -> {target}")
+    except PermissionError:
+        subprocess.run(["ln", "-sf", target, symlink], capture_output=True)
+    except FileExistsError:
+        pass
+
+
 def _get_wkhtmltopdf_path():
     """Return wkhtmltopdf binary path. On Linux, downloads a pre-built binary if not found in PATH."""
     wk_path = shutil.which("wkhtmltopdf")
@@ -46,6 +69,8 @@ def _get_wkhtmltopdf_path():
             raise RuntimeError(f"Download failed: {dl_result.stderr.decode()}")
         subprocess.run(["dpkg", "-x", deb_path, "/tmp/wkhtmltox"], check=True, capture_output=True)
         os.chmod(bin_path, 0o755)
+        # Fix missing libjpeg.so.8: modern Debian/Ubuntu provides libjpeg.so.62 instead
+        _fix_libjpeg()
         print(f">>> wkhtmltopdf ready: {bin_path}")
         return bin_path
     except Exception as e:
